@@ -139,3 +139,16 @@ def test_board_background_via_mcp(mcp, owner):
     assert not err and res["background"] == "dots"
     text, err = mcp.call("update_board", board_id=owner["board_id"], background="glitter")
     assert err and "background" in text
+
+
+def test_transport_details(mcp, owner):
+    s, d = mcp("notifications/initialized", msg_id=None)
+    assert s == 202 and d is None
+    key = mcp.key
+    # trailing slash, X-API-Key header, HEAD/OPTIONS/DELETE
+    assert Client().request("POST", f"/mcp/{key}/", raw=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}), token=None)[0] == 200
+    assert Client().request("POST", "/mcp", raw=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}), token=None,
+                            headers={"x-api-key": key})[0] == 200
+    assert Client().request("HEAD", f"/mcp/{key}", token=None)[0] == 405
+    assert Client().request("OPTIONS", f"/mcp/{key}", token=None)[0] == 204
+    assert Client().request("DELETE", f"/mcp/{key}", token=None)[0] == 204

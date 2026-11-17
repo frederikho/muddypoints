@@ -310,26 +310,51 @@ def _dispatch(user: dict, msg: dict) -> dict | None:
     return _error(msg_id, -32601, f"Method not found: {method}")
 
 
+def _empty(status: int, headers: dict | None = None) -> dict:
+    """Response without body (and without content-type), e.g. 202 for notifications."""
+    return {"statusCode": status, "headers": headers or {}, "body": ""}
+
+
+def _api_key(req: Request) -> str:
+    """Key from the URL (/mcp/<key>), else from `Authorization: Bearer <key>` or `X-API-Key` headers."""
+    path_key = req.path[len("/mcp/"):].strip("/") if req.path.startswith("/mcp/") else ""
+    return path_key or req.bearer or req.headers.get("x-api-key", "").strip()
+
+
+def _describe(payload) -> str:
+    msgs = payload if isinstance(payload, list) else [payload]
+    return ",".join(str(m.get("method", "?")) if isinstance(m, dict) else "?" for m in msgs)
+
+
 def handle(req: Request) -> dict:
-    if req.method == "GET":  # no server-initiated SSE stream in stateless mode
-        return json_response(405, {"error": "Use POST"}, {"allow": "POST, DELETE"})
-    if req.method == "DELETE":
-        return json_response(200, None)
+    client = {"user_agent": req.headers.get("user-agent", "")[:200], "accept": req.headers.get("accept", "")[:100],
+              "protocol": req.headers.get("mcp-protocol-version", "")}
+    if req.method in ("GET", "HEAD"):  # no server-initiated SSE stream in stateless mode (allowed by the spec)
+        log_event(logger, logging.INFO, "mcp non-post", http_method=req.method, **client)
+        return _empty(405, {"allow": "POST, DELETE, OPTIONS"})
+    if req.method == "OPTIONS":
+        return _empty(204, {"allow": "POST, DELETE, OPTIONS"})
+    if req.method == "DELETE":  # session termination: nothing to clean up
+        return _empty(204)
     if req.method != "POST":
-        return json_response(405, {"error": "Use POST"}, {"allow": "POST"})
-    key = req.path[len("/mcp/"):] if req.path.startswith("/mcp/") else req.bearer
-    user = users.user_from_api_key(key.strip("/"))
+        return _empty(405, {"allow": "POST, DELETE, OPTIONS"})
+    user = users.user_from_api_key(_api_key(req))
     if not user:
-        log_event(logger, logging.WARNING, "mcp unauthorized")
+        log_event(logger, logging.WARNING, "mcp unauthorized", **client)
         return json_response(401, _error(None, -32001, "Invalid or missing API key. Create one in the web UI under "
                                                         "Account -> Claude / MCP access."))
     bind(user_id=user["user_id"], channel="mcp")
     try:
         payload = json.loads(req.raw_body or b"null")
     except (json.JSONDecodeError, UnicodeDecodeError):
+        log_event(logger, logging.WARNING, "mcp parse error", body_start=req.raw_body[:200].decode(errors="replace"), **client)
         return json_response(400, _error(None, -32700, "Parse error"))
+    if isinstance(payload, dict) and payload.get("method") == "initialize":
+        client["client_info"] = (payload.get("params") or {}).get("clientInfo")
+        client["requested_protocol"] = (payload.get("params") or {}).get("protocolVersion")
+    log_event(logger, logging.INFO, "mcp message", rpc=_describe(payload), **client)
     if isinstance(payload, list):
         responses = [r for r in (_dispatch(user, m) for m in payload) if r is not None]
-        return json_response(200, responses) if responses else json_response(202, None)
+        return json_response(200, responses) if responses else _empty(202)
     response = _dispatch(user, payload)
-    return json_response(200, response) if response is not None else json_response(202, None)
+    return json_response(200, response) if response is not None else _empty(202)
