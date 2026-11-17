@@ -109,3 +109,40 @@ th { font-size: .8rem; color: var(--muted); font-weight: 600; }
   .slide { break-inside: avoid; grid-template-columns: 1fr; box-shadow: none; }
   .slide .comments { max-height: none; }
 }
+
+/* --- board background textures (pure CSS). Names must match boards.BACKGROUNDS in the backend. --- */
+.bg-plain { background: var(--bg); }
+.bg-dots { background-color: #f3efe6; background-image: radial-gradient(#bfb6a3 1.3px, transparent 1.6px); background-size: 18px 18px; }
+.bg-grid { background-color: #fafbf7;
+  background-image: linear-gradient(rgba(70,110,190,.16) 1px, transparent 1px), linear-gradient(90deg, rgba(70,110,190,.16) 1px, transparent 1px);
+  background-size: 24px 24px; }
+.bg-lined { background-color: #fffdf6;
+  background-image: linear-gradient(90deg, transparent 58px, rgba(220,80,80,.4) 58px, rgba(220,80,80,.4) 60px, transparent 60px),
+    linear-gradient(rgba(70,120,200,.22) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 28px; }
+.bg-cork { background-color: #c49a6c;
+  background-image: radial-gradient(circle at 30% 40%, rgba(95,58,25,.45) 1px, transparent 2px),
+    radial-gradient(circle at 70% 60%, rgba(95,58,25,.35) 1.5px, transparent 2.5px),
+    radial-gradient(circle at 50% 50%, rgba(255,235,200,.35) 1px, transparent 2px);
+  background-size: 13px 11px, 19px 17px, 7px 9px; }
+.bg-linen { background-color: #eee7dc;
+  background-image: repeating-linear-gradient(45deg, rgba(0,0,0,.035) 0 2px, transparent 2px 6px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,.035) 0 2px, transparent 2px 6px); }
+.bg-chalkboard { background-color: #2e4638;
+  background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,.06) 1px, transparent 2px),
+    radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.35) 100%);
+  background-size: 9px 11px, 100% 100%; }
+.bg-sunset { background: linear-gradient(135deg, #ffd6a5 0%, #fdb4c8 50%, #c3b6ff 100%); }
+.bg-ocean { background: linear-gradient(160deg, #b5e6ff 0%, #6fb1fc 55%, #4f6ef7 100%); }
+body[class*="bg-"] { background-attachment: fixed; min-height: 100vh; }
+.on-dark .empty-note { color: #fff; }
+
+/* board cards on the space screen */
+.board-card { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.board-thumb { height: 92px; display: flex; align-items: flex-end; padding: 10px 12px; text-decoration: none !important; border-bottom: 1px solid var(--border); }
+.board-thumb .name { background: var(--surface); color: var(--text); padding: 3px 10px; border-radius: 8px; font-weight: 700; box-shadow: var(--shadow); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-card .body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.board-card .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.bg-swatch { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--border); cursor: pointer; padding: 0; }
+.bg-swatch.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }

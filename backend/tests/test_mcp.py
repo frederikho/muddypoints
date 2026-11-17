@@ -132,3 +132,10 @@ def test_api_key_never_logged(mcp):
         root.setLevel(old_level)
     text = "\n".join(lines)
     assert lines and mcp.key not in text and "/mcp/<key>" in text
+
+
+def test_board_background_via_mcp(mcp, owner):
+    res, err = mcp.call("update_board", board_id=owner["board_id"], background="dots")
+    assert not err and res["background"] == "dots"
+    text, err = mcp.call("update_board", board_id=owner["board_id"], background="glitter")
+    assert err and "background" in text

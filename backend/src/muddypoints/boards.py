@@ -15,6 +15,10 @@ from .util import clean_name, new_id, now_iso, sortable_id
 logger = get_logger(__name__)
 
 
+# Background textures (pure CSS, see frontend/css/style.css `.bg-<name>`). Keep both lists in sync.
+BACKGROUNDS = ("plain", "dots", "grid", "lined", "cork", "linen", "chalkboard", "sunset", "ocean")
+
+
 def board_url(board_id: str) -> str:
     return f"{settings.frontend_url}/board.html?b={board_id}"
 
@@ -35,15 +39,23 @@ def require_board(user: dict, board_id: str, min_role: str = "editor") -> tuple[
 def public_board(board: dict) -> dict:
     return {"board_id": board["board_id"], "space_id": board["space_id"], "name": board["name"],
             "locked": bool(board.get("locked")), "created_at": board.get("created_at"),
-            "updated_at": board.get("updated_at"), "url": board_url(board["board_id"])}
+            "updated_at": board.get("updated_at"), "url": board_url(board["board_id"]),
+            "background": board.get("background") if board.get("background") in BACKGROUNDS else "plain"}
 
 
-def create_board(user: dict, space_id: str, name) -> dict:
+def _check_background(background) -> str:
+    if background not in BACKGROUNDS:
+        raise ApiError(400, "invalid_input", f"'background' must be one of: {', '.join(BACKGROUNDS)}")
+    return background
+
+
+def create_board(user: dict, space_id: str, name, background="plain") -> dict:
     spaces.require_space(user, space_id, "editor")
+    background = _check_background(background or "plain")
     board_id = new_id()
     now = now_iso()
     board = {"PK": f"BOARD#{board_id}", "SK": "META", "board_id": board_id, "space_id": space_id,
-             "name": clean_name(name), "locked": False, "created_at": now, "updated_at": now,
+             "name": clean_name(name), "locked": False, "background": background, "created_at": now, "updated_at": now,
              "created_by": user["user_id"], "GSI1PK": f"SPACE#{space_id}", "GSI1SK": f"BOARD#{board_id}"}
     db.put(board)
     log_event(logger, logging.INFO, "board created", board_id=board_id, space_id=space_id)
@@ -56,7 +68,7 @@ def list_boards(user: dict, space_id: str) -> list[dict]:
                   key=lambda b: b["name"].lower())
 
 
-def update_board(user: dict, board_id: str, name=None, locked=None) -> dict:
+def update_board(user: dict, board_id: str, name=None, locked=None, background=None) -> dict:
     require_board(user, board_id, "editor")
     fields = {"updated_at": now_iso()}
     if name is not None:
@@ -65,6 +77,8 @@ def update_board(user: dict, board_id: str, name=None, locked=None) -> dict:
         if not isinstance(locked, bool):
             raise ApiError(400, "invalid_input", "'locked' must be true or false")
         fields["locked"] = locked
+    if background is not None:
+        fields["background"] = _check_background(background)
     board = db.update(f"BOARD#{board_id}", "META", fields)
     log_event(logger, logging.INFO, "board updated", board_id=board_id, fields=sorted(fields))
     return public_board(board)

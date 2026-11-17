@@ -1,5 +1,5 @@
 // Dashboard SPA (hash routing): #/ spaces, #/space/<id>, #/account. Login/registration when logged out.
-import { api, session, el, toast, showError, busy, copyText, fmtDate, API_ORIGIN } from "./api.js";
+import { api, session, el, toast, showError, busy, copyText, fmtDate, API_ORIGIN, backgroundPicker } from "./api.js";
 
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
@@ -123,21 +123,30 @@ async function spaceView(spaceId) {
     e.preventDefault();
     busy(boardForm.querySelector("button"), async () => { await api("POST", `/api/spaces/${spaceId}/boards`, { name: boardName.value }); refresh(); });
   });
-  const boardRows = boards.map((b) => el("tr", {},
-    el("td", {}, el("a", { href: `board.html?b=${b.board_id}` }, el("strong", {}, b.name)), " ", b.locked && el("span", { class: "badge locked" }, "locked")),
-    el("td", { class: "muted small" }, fmtDate(b.updated_at)),
-    el("td", { class: "row", style: "justify-content:flex-end" },
-      el("button", { class: "sm", onclick: () => copyText(boardLink(b.board_id)) }, "Copy link"),
-      el("button", { class: "sm", onclick: async () => {
-        const name = prompt("Rename board:", b.name);
-        if (name) { await api("PATCH", `/api/boards/${b.board_id}`, { name }).catch(showError); refresh(); }
-      } }, "Rename"),
-      el("button", { class: "sm", onclick: async () => { await api("PATCH", `/api/boards/${b.board_id}`, { locked: !b.locked }).catch(showError); refresh(); } },
-        b.locked ? "Unlock" : "Lock"),
-      isOwner && el("button", { class: "sm danger", onclick: async () => {
-        if (!confirm(`Delete board “${b.name}” with all slides and comments? Its link stops working.`)) return;
-        await api("DELETE", `/api/boards/${b.board_id}`).catch(showError); refresh();
-      } }, "Delete"))));
+  const boardCards = boards.map((b) => {
+    const thumb = el("a", { class: `board-thumb bg-${b.background || "plain"}`, href: `board.html?b=${b.board_id}`, title: "Open board" },
+      el("span", { class: "name" }, b.name));
+    const picker = backgroundPicker(b.background, async (bg) => {
+      await api("PATCH", `/api/boards/${b.board_id}`, { background: bg });
+      thumb.className = `board-thumb bg-${bg}`;
+      b.background = bg;
+    });
+    return el("div", { class: "card board-card" }, thumb, el("div", { class: "body" },
+      el("div", { class: "row muted small" }, "Updated ", fmtDate(b.updated_at), b.locked && el("span", { class: "badge locked" }, "locked")),
+      el("div", { class: "actions" },
+        el("button", { class: "sm", onclick: () => copyText(boardLink(b.board_id)) }, "Copy link"),
+        el("button", { class: "sm", onclick: async () => {
+          const name = prompt("Rename board:", b.name);
+          if (name) { await api("PATCH", `/api/boards/${b.board_id}`, { name }).catch(showError); refresh(); }
+        } }, "Rename"),
+        el("button", { class: "sm", onclick: async () => { await api("PATCH", `/api/boards/${b.board_id}`, { locked: !b.locked }).catch(showError); refresh(); } },
+          b.locked ? "Unlock" : "Lock"),
+        isOwner && el("button", { class: "sm danger", onclick: async () => {
+          if (!confirm(`Delete board “${b.name}” with all slides and comments? Its link stops working.`)) return;
+          await api("DELETE", `/api/boards/${b.board_id}`).catch(showError); refresh();
+        } }, "Delete")),
+      picker));
+  });
 
   // members
   const inviteEmail = el("input", { type: "email", placeholder: "colleague@university.edu", required: true });
@@ -180,8 +189,8 @@ async function spaceView(spaceId) {
       space.role === "editor" ? " Editors can do everything except deleting and managing roles." : ""),
     el("div", { class: "section-title" }, el("h2", {}, "Boards")),
     boardForm,
-    el("div", { class: "card", style: "margin-top:12px;padding:4px 12px" },
-      boards.length ? el("table", {}, el("tbody", {}, boardRows)) : el("p", { class: "muted" }, "No boards yet.")),
+    boards.length ? el("div", { class: "grid", style: "margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))" }, boardCards)
+      : el("p", { class: "muted" }, "No boards yet."),
     el("div", { class: "section-title" }, el("h2", {}, "Members")),
     inviteForm,
     el("div", { class: "card", style: "margin-top:12px;padding:4px 12px" }, el("table", {}, el("tbody", {}, memberRows, inviteRows))));

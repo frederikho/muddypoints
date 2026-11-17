@@ -211,7 +211,8 @@ def revoke_invite(req):
 
 @router.route("POST", "/api/spaces/{space_id}/boards")
 def create_board(req):
-    return {"board": boards.create_board(require_user(req), p(req, "space_id"), body(req).get("name"))}
+    d = body(req)
+    return {"board": boards.create_board(require_user(req), p(req, "space_id"), d.get("name"), d.get("background"))}
 
 
 # --- boards ---------------------------------------------------------------------------------
@@ -224,7 +225,8 @@ def get_board(req):
 @router.route("PATCH", "/api/boards/{board_id}")
 def update_board(req):
     d = body(req)
-    return {"board": boards.update_board(require_user(req), p(req, "board_id"), d.get("name"), d.get("locked"))}
+    return {"board": boards.update_board(require_user(req), p(req, "board_id"), d.get("name"), d.get("locked"),
+                                         d.get("background"))}
 
 
 @router.route("DELETE", "/api/boards/{board_id}")

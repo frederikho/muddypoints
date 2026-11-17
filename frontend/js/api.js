@@ -59,6 +59,22 @@ window.addEventListener("unhandledrejection", (e) => {
   reportError(e.reason?.message || String(e.reason), e.reason?.stack || "");
 });
 
+// --- board backgrounds (CSS classes .bg-<id>; ids must match boards.BACKGROUNDS in the backend) ---
+export const BACKGROUNDS = [
+  ["plain", "Plain"], ["dots", "Dots"], ["grid", "Graph paper"], ["lined", "Notebook"], ["cork", "Cork board"],
+  ["linen", "Linen"], ["chalkboard", "Chalkboard"], ["sunset", "Sunset"], ["ocean", "Ocean"],
+];
+
+// Row of clickable texture swatches; calls onPick(id) when one is chosen.
+export function backgroundPicker(current, onPick) {
+  const row = el("div", { class: "swatches", title: "Board background" });
+  const render = (active) => row.replaceChildren(...BACKGROUNDS.map(([id, label]) =>
+    el("button", { type: "button", class: `bg-swatch bg-${id} ${id === active ? "active" : ""}`, title: label, "aria-label": `Background: ${label}`,
+      onclick: async () => { render(id); try { await onPick(id); } catch (e) { render(active); showError(e); } } })));
+  render(current || "plain");
+  return row;
+}
+
 // --- DOM helpers -----------------------------------------------------------------------------
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);

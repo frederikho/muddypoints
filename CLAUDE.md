@@ -56,7 +56,7 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 | `whoami` | current user and spaces |
 | `list_spaces`, `create_space`, `rename_space`, `delete_space`* | spaces |
 | `list_members`, `invite_member`, `set_member_role`*, `remove_member`* | sharing |
-| `list_boards`, `create_board`, `get_board`, `update_board` (name, locked), `delete_board`* | boards |
+| `list_boards`, `create_board`, `get_board`, `update_board` (name, locked, background), `delete_board`* | boards (backgrounds: `boards.BACKGROUNDS`, CSS `.bg-<id>` in `style.css`, picker list in `api.js`; keep all three in sync) |
 | `list_comments`, `delete_comment`* | comments |
 | `import_slides_from_url` (mode append/replace) | load a PDF or image from a URL (Drive and Dropbox share links work) |
 | `replace_board_material`* | weekly rotation: archive PDF, clear, import new material from URL |

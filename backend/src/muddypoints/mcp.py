@@ -120,10 +120,14 @@ def _list_boards(user, a):
     return boards.list_boards(user, a["space_id"])
 
 
-@tool("create_board", "Create a board in a space. Returns its public URL.", {**SPACE, "name": S},
+BACKGROUND = {"background": {"type": "string", "enum": list(boards.BACKGROUNDS),
+                              "description": "Background texture of the board page"}}
+
+
+@tool("create_board", "Create a board in a space. Returns its public URL.", {**SPACE, "name": S, **BACKGROUND},
       ("space_id", "name"))
 def _create_board(user, a):
-    return boards.create_board(user, a["space_id"], a.get("name"))
+    return boards.create_board(user, a["space_id"], a.get("name"), a.get("background"))
 
 
 @tool("get_board", "Board overview: slides (ids, order, source file, likes, comment count) and settings.", BOARD,
@@ -136,10 +140,10 @@ def _get_board(user, a):
          "comments": len(s["comments"])} for i, s in enumerate(v["slides"])]}
 
 
-@tool("update_board", "Rename a board and/or lock it (locked = students can no longer comment or like).",
-      {**BOARD, "name": S, "locked": {"type": "boolean"}}, ("board_id",))
+@tool("update_board", "Rename a board, lock it (locked = students can no longer comment or like) and/or change its "
+      "background texture.", {**BOARD, "name": S, "locked": {"type": "boolean"}, **BACKGROUND}, ("board_id",))
 def _update_board(user, a):
-    return boards.update_board(user, a["board_id"], a.get("name"), a.get("locked"))
+    return boards.update_board(user, a["board_id"], a.get("name"), a.get("locked"), a.get("background"))
 
 
 @tool("delete_board", "Permanently delete a board incl. slides and comments (owners only). Its URL stops working.",

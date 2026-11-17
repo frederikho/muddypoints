@@ -1,5 +1,5 @@
 // Public board page: slides with likes and comments. Staff (space members) also get a management toolbar.
-import { api, session, storage, el, toast, showError, busy, timeAgo, ApiError } from "./api.js";
+import { api, session, storage, el, toast, showError, busy, timeAgo, ApiError, BACKGROUNDS, backgroundPicker } from "./api.js";
 
 const boardId = new URLSearchParams(location.search).get("b");
 const IDENTITY_KEY = "muddypoints.identity";
@@ -125,6 +125,7 @@ function renderAll() {
   document.title = `${board.name} · Muddy Points`;
   document.getElementById("board-title").textContent = board.name;
   document.getElementById("locked").classList.toggle("hidden", !board.locked);
+  applyBackground(board.background);
   document.getElementById("who").replaceChildren(viewer ? el("span", { class: "identity-chip", title: viewer.is_user ? "Logged in" : "Your anonymous name for this week (assigned randomly)" },
     viewer.is_user ? "👤 " : "🎭 ", viewer.name) : "");
   document.getElementById("staff-link").classList.toggle("hidden", !my_role);
@@ -133,6 +134,11 @@ function renderAll() {
   const host = document.getElementById("slides");
   host.replaceChildren(...(slides.length ? slides.map((s, i) => slideNode(s, i, slides.length))
     : [el("div", { class: "card empty" }, my_role ? "No slides yet — upload a PDF or images above." : "No material has been posted yet. Check back later!")]));
+}
+
+function applyBackground(bg) {
+  for (const [id] of BACKGROUNDS) document.body.classList.remove(`bg-${id}`);
+  document.body.classList.add(`bg-${bg || "plain"}`);
 }
 
 // --- staff toolbar ---------------------------------------------------------------------------
@@ -165,9 +171,13 @@ function renderToolbar() {
     if (!confirm("Remove ALL slides, comments and likes from this board? A PDF of the current state is archived first.")) return;
     await api("POST", `/api/boards/${boardId}/clear`, { archive: true }); toast("Board cleared"); refresh(true);
   }) }, "Clear board");
-  const copyBtn = el("button", { onclick: () => navigator.clipboard.writeText(location.href.split("#")[0]).then(() => toast("Link copied")) }, "🔗 Copy student link");
+  const picker = backgroundPicker(state.board.background, async (bg) => {
+    applyBackground(bg);
+    const { board } = await api("PATCH", `/api/boards/${boardId}`, { background: bg });
+    state.board = board;
+  });
   bar.replaceChildren(uploadBtn, mode, fileInput, status, el("span", { class: "spacer", style: "flex:1" }),
-    copyBtn, exportBtn, lockBtn, archivesBtn, clearBtn);
+    exportBtn, lockBtn, archivesBtn, clearBtn, el("div", { class: "row", style: "width:100%" }, el("span", { class: "muted small" }, "Background:"), picker));
 }
 
 async function upload(files, mode, status) {
@@ -202,7 +212,8 @@ async function move(index, delta) {
 async function refresh(force = false) {
   const next = await load();
   const sameSlides = state && next.slides.map((s) => s.slide_id).join() === state.slides.map((s) => s.slide_id).join();
-  const sameMeta = state && next.board.locked === state.board.locked && next.board.name === state.board.name;
+  const sameMeta = state && next.board.locked === state.board.locked && next.board.name === state.board.name
+    && next.board.background === state.board.background;
   if (!force && sameSlides && sameMeta) {
     next.slides.forEach((s, i) => {
       s.image_url = state.slides[i].image_url; // keep old URL so images don't reload

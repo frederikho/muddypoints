@@ -160,3 +160,16 @@ def test_export_pdf(client, owner):
     assert "Warum ist das so? Äpfel & <Birnen>" in text and "Slide 2" in text
     pdf, _ = export.build_pdf(bid, include_uncommented=False)
     assert "Slide 2" not in "".join(p.get_text() for p in pymupdf.open(stream=pdf))
+
+
+def test_board_background(client, owner):
+    bid, sid = owner["board_id"], owner["space_id"]
+    assert Client().get(f"/api/boards/{bid}")[1]["board"]["background"] == "plain"
+    s, d = client.patch(f"/api/boards/{bid}", {"background": "cork"})
+    assert s == 200 and d["board"]["background"] == "cork"
+    assert Client().get(f"/api/boards/{bid}")[1]["board"]["background"] == "cork"
+    assert client.get(f"/api/spaces/{sid}")[1]["boards"][0]["background"] == "cork"
+    assert client.patch(f"/api/boards/{bid}", {"background": "url(evil)"})[0] == 400
+    s, d = client.post(f"/api/spaces/{sid}/boards", {"name": "W2", "background": "chalkboard"})
+    assert d["board"]["background"] == "chalkboard"
+    assert client.post(f"/api/spaces/{sid}/boards", {"name": "W3", "background": "nope"})[0] == 400
