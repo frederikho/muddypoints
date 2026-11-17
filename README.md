@@ -26,13 +26,13 @@ template.yaml                  AWS infrastructure (SAM)
 
 ## Weekly workflow
 
-1. Open the board, **Export PDF with comments**, and upload the PDF to OLAT.
-2. **Upload** the new material with *Replace all slides*. A PDF of the old state is archived automatically (see **Archive**).
+1. Open the board, click **⚙** (top right) → **Export PDF with comments**, and upload the PDF to OLAT.
+2. In the same panel, **Upload** the new material with *Replace all slides*. A PDF of the old state is archived automatically (listed under **Archive** in the panel).
 3. The link stays the same, so students keep using their bookmark.
 
 Or ask Claude: *"Export the comments of board 'Lecture 3' and replace it with https://…/lecture4.pdf"*.
 
-Other useful buttons: **Close comments** (locks the board) and the ↑ ↓ 🗑 controls on each slide.
+Also in the ⚙ panel: **Close comments** (students can still read but no longer comment or like), background texture, rename. Single slides are moved/deleted with the ↑ ↓ 🗑 controls under each slide. On the space screen, each board card has its own ⚙ menu.
 
 ---
 

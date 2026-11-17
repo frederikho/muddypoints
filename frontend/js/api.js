@@ -75,6 +75,37 @@ export function backgroundPicker(current, onPick) {
   return row;
 }
 
+// --- ⚙ popover menu: build(close) returns the menu's children; closes on outside click / Escape ---
+let openMenu = null;
+function closeMenu() {
+  if (!openMenu) return;
+  openMenu.querySelector(".popover").classList.add("hidden");
+  openMenu.querySelector(".cog").setAttribute("aria-expanded", "false");
+  openMenu = null;
+}
+document.addEventListener("click", (e) => { if (openMenu && !e.composedPath().includes(openMenu)) closeMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+
+export function cogMenu(build, title = "Settings") {
+  const pop = el("div", { class: "popover hidden", role: "menu" });
+  const btn = el("button", { class: "cog", type: "button", title, "aria-label": title, "aria-haspopup": "true", "aria-expanded": "false" }, "⚙");
+  const wrap = el("div", { class: "cog-wrap" }, btn, pop);
+  btn.addEventListener("click", () => {
+    const wasOpen = openMenu === wrap;
+    closeMenu();
+    if (wasOpen) return;
+    pop.replaceChildren(...build(closeMenu).filter(Boolean));
+    pop.classList.remove("hidden");
+    btn.setAttribute("aria-expanded", "true");
+    openMenu = wrap;
+  });
+  return wrap;
+}
+
+export function menuItem(label, onclick, cls = "") {
+  return el("button", { class: `menu-item ${cls}`, type: "button", role: "menuitem", onclick }, label);
+}
+
 // --- DOM helpers -----------------------------------------------------------------------------
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);

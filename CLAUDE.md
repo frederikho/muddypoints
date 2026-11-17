@@ -8,10 +8,10 @@ Muddy Points: lecture feedback boards, named after the "muddiest point" classroo
 ## Architecture
 - `frontend/`: static vanilla JS (ES modules, **no build step, no npm**). Deployed to GitHub Pages by `.github/workflows/deploy.yml`. During deploy `frontend/js/config.js` is overwritten with the API URL; keep `apiBase: ""` in the repo (that means same origin for the dev server).
   - `index.html` + `js/app.js`: dashboard SPA (login, register, forgot, `#/` spaces, `#/space/<id>`, `#/account` with API keys)
-  - `board.html` + `js/board.js`: public board (slides, comments, likes, staff toolbar, 20 s auto-refresh)
+  - `board.html` + `js/board.js`: public board (slides, comments, likes, staff settings side panel behind ⚙, 20 s auto-refresh)
   - `reset.html`: password reset target (`?token=`)
   - `img/`: logo and favicons, generated from the source artwork by `scripts/make_logo.py assets/logo-source.jpg` (crops, removes the white background; needs Pillow + numpy locally, not at runtime)
-  - `js/api.js`: fetch wrapper, session in localStorage (`muddypoints.session`), `el()` DOM helper, toasts, and **frontend error reporting** to `/api/client-log`
+  - `js/api.js`: `cogMenu()`/`menuItem()` (⚙ popover menus), `backgroundPicker()`, fetch wrapper, session in localStorage (`muddypoints.session`), `el()` DOM helper, toasts, and **frontend error reporting** to `/api/client-log`
   - Anonymous identity: localStorage `muddypoints.identity` `{anon_id, name, token, expires_at}`, replaced after 7 days
 - `backend/src/muddypoints/`: one Lambda (`muddypoints.handler.lambda_handler`) behind a **Lambda Function URL** (no API Gateway, so there is no 30 s limit; timeout is 300 s)
   - `handler.py`: entry point; routes `/mcp*` to `mcp.py` and everything else to `routes.py`; request logging and error handling

@@ -1,12 +1,8 @@
 // Dashboard SPA (hash routing): #/ spaces, #/space/<id>, #/account. Login/registration when logged out.
-import { api, session, el, toast, showError, busy, copyText, fmtDate, timeAgo, API_ORIGIN, backgroundPicker } from "./api.js";
+import { api, session, el, toast, showError, busy, copyText, fmtDate, timeAgo, API_ORIGIN, backgroundPicker, cogMenu, menuItem } from "./api.js";
 
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
-
-function boardLink(boardId) {
-  return new URL(`board.html?b=${boardId}`, location.href).href;
-}
 
 function renderNav() {
   const user = session.user;
@@ -186,27 +182,29 @@ async function spaceView(spaceId) {
   const boardCards = boards.map((b) => {
     const thumb = el("a", { class: `board-thumb bg-${b.background || "plain"}`, href: `board.html?b=${b.board_id}`, title: "Open board" },
       el("span", { class: "name" }, b.name));
-    const picker = backgroundPicker(b.background, async (bg) => {
-      await api("PATCH", `/api/boards/${b.board_id}`, { background: bg });
-      thumb.className = `board-thumb bg-${bg}`;
-      b.background = bg;
-    });
-    return el("div", { class: "card board-card" }, thumb, el("div", { class: "body" },
+    const patch = async (fields) => { await api("PATCH", `/api/boards/${b.board_id}`, fields); };
+    const menu = cogMenu((close) => [
+      menuItem("Rename…", async () => {
+        close();
+        const name = prompt("Rename board:", b.name);
+        if (name) { await patch({ name }).catch(showError); refresh(); }
+      }),
+      menuItem(b.locked ? "🔓 Reopen comments" : "🔒 Close comments", async () => { close(); await patch({ locked: !b.locked }).catch(showError); refresh(); }),
+      isOwner && menuItem("Delete board…", async () => {
+        close();
+        if (!confirm(`Delete board “${b.name}” with all slides and comments? Its link stops working.`)) return;
+        await api("DELETE", `/api/boards/${b.board_id}`).catch(showError); refresh();
+      }, "danger"),
+      el("div", { class: "menu-label" }, "Background"),
+      backgroundPicker(b.background, async (bg) => {
+        await patch({ background: bg });
+        thumb.className = `board-thumb bg-${bg}`;
+        b.background = bg;
+      }),
+    ], "Board settings");
+    return el("div", { class: "card board-card" }, thumb, menu, el("div", { class: "body" },
       el("div", { class: "row muted small" }, el("span", { title: fmtDate(b.last_activity_at) }, "Last activity ", timeAgo(b.last_activity_at)),
-        b.locked && el("span", { class: "badge locked" }, "comments closed")),
-      el("div", { class: "actions" },
-        el("button", { class: "sm", onclick: () => copyText(boardLink(b.board_id)) }, "Copy link"),
-        el("button", { class: "sm", onclick: async () => {
-          const name = prompt("Rename board:", b.name);
-          if (name) { await api("PATCH", `/api/boards/${b.board_id}`, { name }).catch(showError); refresh(); }
-        } }, "Rename"),
-        el("button", { class: "sm", onclick: async () => { await api("PATCH", `/api/boards/${b.board_id}`, { locked: !b.locked }).catch(showError); refresh(); } },
-          b.locked ? "Reopen comments" : "Close comments"),
-        isOwner && el("button", { class: "sm danger", onclick: async () => {
-          if (!confirm(`Delete board “${b.name}” with all slides and comments? Its link stops working.`)) return;
-          await api("DELETE", `/api/boards/${b.board_id}`).catch(showError); refresh();
-        } }, "Delete")),
-      picker));
+        b.locked && el("span", { class: "badge locked" }, "comments closed"))));
   });
 
   // members

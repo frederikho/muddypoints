@@ -1,4 +1,4 @@
-// Public board page: slides with likes and comments. Staff (space members) also get a management toolbar.
+// Public board page: slides with likes and comments. Staff (space members) also get a settings side panel (⚙).
 import { api, session, storage, el, toast, showError, busy, timeAgo, ApiError, BACKGROUNDS, backgroundPicker } from "./api.js";
 
 const boardId = new URLSearchParams(location.search).get("b");
@@ -131,11 +131,11 @@ function renderAll() {
   document.getElementById("who").replaceChildren(viewer ? el("span", { class: "identity-chip", title: viewer.is_user ? "Logged in" : "Your anonymous name for this week (assigned randomly)" },
     viewer.is_user ? "👤 " : "🎭 ", viewer.name) : "");
   document.getElementById("staff-link").classList.toggle("hidden", !my_role);
-  renderToolbar();
+  renderPanel();
   slideNodes.clear();
   const host = document.getElementById("slides");
   host.replaceChildren(...(slides.length ? slides.map((s, i) => slideNode(s, i, slides.length))
-    : [el("div", { class: "card empty" }, my_role ? "No slides yet — upload a PDF or images above." : "No material has been posted yet. Check back later!")]));
+    : [el("div", { class: "card empty" }, my_role ? "No slides yet — open ⚙ (top right) to upload a PDF or images." : "No material has been posted yet. Check back later!")]));
 }
 
 function applyBackground(bg) {
@@ -143,43 +143,87 @@ function applyBackground(bg) {
   document.body.classList.add(`bg-${bg || "plain"}`);
 }
 
-// --- staff toolbar ---------------------------------------------------------------------------
-function renderToolbar() {
-  const bar = document.getElementById("toolbar");
+// --- staff side panel (⚙ in the top bar) ------------------------------------------------------
+const panel = document.getElementById("panel");
+const backdrop = document.getElementById("panel-backdrop");
+const settingsBtn = document.getElementById("settings-btn");
+let uploading = false;
+
+function setPanel(open) {
+  panel.classList.toggle("open", open);
+  backdrop.classList.toggle("hidden", !open);
+  panel.setAttribute("aria-hidden", String(!open));
+  settingsBtn.setAttribute("aria-expanded", String(open));
+  if (open) loadArchives();
+}
+settingsBtn.addEventListener("click", () => setPanel(!panel.classList.contains("open")));
+backdrop.addEventListener("click", () => setPanel(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && panel.classList.contains("open")) setPanel(false); });
+
+const section = (title, ...children) => el("section", { class: "panel-section" }, el("h3", {}, title), ...children);
+
+async function loadArchives() {
+  const list = document.getElementById("archive-list");
+  if (!list) return;
+  list.replaceChildren(el("p", { class: "muted small" }, "Loading…"));
+  try {
+    const { archives } = await api("GET", `/api/boards/${boardId}/archives`);
+    list.replaceChildren(...(archives.length
+      ? archives.map((a) => el("a", { class: "archive-link", href: a.download_url, target: "_blank" }, "📄 ", a.key.split("/").pop()))
+      : [el("p", { class: "muted small" }, "No archived PDFs yet. A PDF is archived automatically whenever the slides are replaced or the board is cleared.")]));
+  } catch (e) {
+    list.replaceChildren(el("p", { class: "alert" }, e.message));
+  }
+}
+
+function renderPanel() {
   const role = state.my_role;
-  bar.classList.toggle("hidden", !role);
-  if (!role) return;
+  settingsBtn.classList.toggle("hidden", !role);
+  if (!role) { setPanel(false); return; }
+  const wasOpen = panel.classList.contains("open");
+
   const fileInput = el("input", { type: "file", multiple: true, accept: "application/pdf,image/*", class: "hidden" });
-  const mode = el("select", { style: "width:auto" }, el("option", { value: "append" }, "Add after existing slides"),
-    role === "owner" && el("option", { value: "replace" }, "Replace all slides (archives comments as PDF)"));
-  const status = el("span", { class: "muted small" });
-  const uploadBtn = el("button", { class: "primary", onclick: () => fileInput.click() }, "⬆ Upload PDF / images");
-  fileInput.addEventListener("change", () => busy(uploadBtn, () => upload([...fileInput.files], mode.value, status)));
-  const exportBtn = el("button", { onclick: () => busy(exportBtn, async () => {
+  const mode = el("select", {}, el("option", { value: "append" }, "Add after existing slides"),
+    role === "owner" && el("option", { value: "replace" }, "Replace all slides (old ones are archived)"));
+  const status = el("div", { class: "muted small", id: "upload-status" });
+  const uploadBtn = el("button", { class: "primary block", disabled: uploading, onclick: () => fileInput.click() }, "⬆ Upload PDF / images");
+  fileInput.addEventListener("change", () => busy(uploadBtn, async () => {
+    uploading = true;
+    try { await upload([...fileInput.files], mode.value, status); } finally { uploading = false; fileInput.value = ""; }
+  }));
+
+  const exportBtn = el("button", { class: "block", onclick: () => busy(exportBtn, async () => {
     const r = await api("POST", `/api/boards/${boardId}/export`, {});
     location.href = r.download_url; // served as attachment -> downloads, page stays
   }) }, "⬇ Export PDF with comments");
-  const lockBtn = el("button", { onclick: () => busy(lockBtn, async () => {
-    await api("PATCH", `/api/boards/${boardId}`, { locked: !state.board.locked }); refresh(true);
+  const lockBtn = el("button", { class: "block", onclick: () => busy(lockBtn, async () => {
+    await api("PATCH", `/api/boards/${boardId}`, { locked: !state.board.locked }); await refresh(true);
   }) }, state.board.locked ? "🔓 Reopen comments" : "🔒 Close comments");
-  const archivesBtn = el("button", { onclick: () => busy(archivesBtn, async () => {
-    const { archives } = await api("GET", `/api/boards/${boardId}/archives`);
-    if (!archives.length) return toast("No archived PDFs yet");
-    const list = el("div", { class: "card stack", style: "width:100%" }, el("strong", {}, "Archived PDFs"),
-      ...archives.map((a) => el("div", {}, el("a", { href: a.download_url, target: "_blank" }, a.key.split("/").pop()))));
-    bar.append(list);
-  }) }, "Archive");
-  const clearBtn = role === "owner" && el("button", { class: "danger", onclick: () => busy(clearBtn, async () => {
-    if (!confirm("Remove ALL slides, comments and likes from this board? A PDF of the current state is archived first.")) return;
-    await api("POST", `/api/boards/${boardId}/clear`, { archive: true }); toast("Board cleared"); refresh(true);
-  }) }, "Clear board");
+  const renameBtn = el("button", { class: "block", onclick: () => busy(renameBtn, async () => {
+    const name = prompt("Rename board:", state.board.name);
+    if (name) { await api("PATCH", `/api/boards/${boardId}`, { name }); await refresh(true); }
+  }) }, "✏️ Rename board");
   const picker = backgroundPicker(state.board.background, async (bg) => {
     applyBackground(bg);
     const { board } = await api("PATCH", `/api/boards/${boardId}`, { background: bg });
     state.board = board;
   });
-  bar.replaceChildren(uploadBtn, mode, fileInput, status, el("span", { class: "spacer", style: "flex:1" }),
-    exportBtn, lockBtn, archivesBtn, clearBtn, el("div", { class: "row", style: "width:100%" }, el("span", { class: "muted small" }, "Background:"), picker));
+  const clearBtn = role === "owner" && el("button", { class: "danger block", onclick: () => busy(clearBtn, async () => {
+    if (!confirm("Remove ALL slides, comments and likes from this board? A PDF of the current state is archived first.")) return;
+    await api("POST", `/api/boards/${boardId}/clear`, { archive: true }); toast("Board cleared"); await refresh(true);
+  }) }, "Clear board…");
+
+  panel.replaceChildren(
+    el("div", { class: "panel-head" }, el("h2", {}, "Board settings"),
+      el("button", { class: "ghost", type: "button", "aria-label": "Close", onclick: () => setPanel(false) }, "✕")),
+    section("Slides", uploadBtn, mode, fileInput, status,
+      el("p", { class: "muted small" }, "PDF pages and images become one slide each. Reorder or delete single slides with the controls under each slide.")),
+    section("Comments", lockBtn, exportBtn),
+    section("Background", picker),
+    section("Board", renameBtn),
+    section("Archive", el("div", { id: "archive-list", class: "stack" })),
+    role === "owner" && section("Danger zone", clearBtn));
+  if (wasOpen) loadArchives();
 }
 
 async function upload(files, mode, status) {
