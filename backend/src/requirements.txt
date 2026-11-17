@@ -1,0 +1,2 @@
+# Lambda runtime dependencies (SAM packages this file; boto3 is provided by the Lambda runtime).
+pymupdf==1.28.2

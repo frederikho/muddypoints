@@ -1,0 +1,112 @@
+# Test -> deploy backend (SAM) -> deploy frontend (GitHub Pages) -> tag the release.
+# Runs on every push to main. Pull requests only run the tests.
+# Manual run (Actions tab -> "Run workflow") can deploy any older ref = emergency rollback, see CLAUDE.md.
+name: Test & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (tag like deploy-20260101-120000, or commit SHA). Empty = current main."
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ inputs.ref || github.sha }}" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: backend/requirements-dev.txt }
+      - run: pip install -r backend/requirements-dev.txt
+      - run: pytest
+        working-directory: backend
+
+  deploy-backend:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: { id-token: write, contents: read }
+    outputs:
+      api_url: ${{ steps.outputs.outputs.api_url }}
+    env:
+      STACK_NAME: ${{ vars.STACK_NAME || 'padlet' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ inputs.ref || github.sha }}" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: aws-actions/setup-sam@v2
+        with: { use-installer: true }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Compute frontend URL
+        id: frontend
+        run: |
+          url="${{ vars.FRONTEND_URL }}"
+          owner="${{ github.repository_owner }}"
+          [ -n "$url" ] || url="https://${owner,,}.github.io/${{ github.event.repository.name }}"
+          echo "url=${url%/}" >> "$GITHUB_OUTPUT"
+      - run: sam build
+      - name: sam deploy
+        run: |
+          sam deploy --stack-name "$STACK_NAME" --no-confirm-changeset --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "SecretKey=${{ secrets.SECRET_KEY }}" \
+              "FrontendUrl=${{ steps.frontend.outputs.url }}" \
+              "MailFrom=${{ vars.MAIL_FROM }}" \
+              "BrevoApiKey=${{ secrets.BREVO_API_KEY }}" \
+              "AllowedEmailDomains=${{ vars.ALLOWED_EMAIL_DOMAINS }}" \
+              "LogLevel=${{ vars.LOG_LEVEL || 'INFO' }}"
+      - name: Read stack outputs
+        id: outputs
+        run: |
+          url=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
+          echo "api_url=${url%/}" >> "$GITHUB_OUTPUT"
+      - name: Smoke test
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 3 "${{ steps.outputs.outputs.api_url }}/api/health"
+
+  deploy-frontend:
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    permissions: { pages: write, id-token: write, contents: read }
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ inputs.ref || github.sha }}" }
+      - name: Point the frontend at the API
+        run: |
+          printf 'window.PADLET_CONFIG = { apiBase: "%s" };\n' "${{ needs.deploy-backend.outputs.api_url }}" > frontend/js/config.js
+          cat frontend/js/config.js
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: frontend }
+      - uses: actions/deploy-pages@v4
+        id: deployment
+
+  tag-release:
+    needs: deploy-frontend
+    if: github.event_name == 'push' || inputs.ref == ''
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag successful deployment (rollback points)
+        run: |
+          tag="deploy-$(date -u +%Y%m%d-%H%M%S)"
+          git tag "$tag" "${{ github.sha }}"
+          git push origin "$tag"
+          echo "Tagged $tag" >> "$GITHUB_STEP_SUMMARY"

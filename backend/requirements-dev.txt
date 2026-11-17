@@ -1,0 +1,4 @@
+-r src/requirements.txt
+boto3>=1.35
+moto[s3,dynamodb,logs,server]>=5.0
+pytest>=8.0

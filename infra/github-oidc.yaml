@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  One-time bootstrap - lets GitHub Actions of ONE repository deploy the app stack without stored AWS keys.
+  Deploy once by hand (AWS console -> CloudFormation -> Create stack, or `aws cloudformation deploy`),
+  then put the RoleArn output into the GitHub repository variable AWS_ROLE_ARN.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Description: owner/name of the repository, e.g. my-chair/course-boards
+  AppStackName:
+    Type: String
+    Default: padlet
+    Description: Must match vars.STACK_NAME (default "padlet") used by the deploy workflow
+  CreateOIDCProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Set to false if this AWS account already has the token.actions.githubusercontent.com provider
+
+Conditions:
+  CreateProvider: !Equals [!Ref CreateOIDCProvider, "true"]
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList: [6938fd4d98bab03faadb97b34396831e3780aea1]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AppStackName}-github-deploy
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/main
+      Policies:
+        - PolicyName: deploy-app-stack
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [cloudformation:*, lambda:*, dynamodb:*, s3:*, logs:*, sts:GetCallerIdentity]
+                Resource: "*"
+              - Effect: Allow
+                Action: [iam:GetRole, iam:CreateRole, iam:DeleteRole, iam:PutRolePolicy, iam:DeleteRolePolicy,
+                         iam:GetRolePolicy, iam:AttachRolePolicy, iam:DetachRolePolicy, iam:TagRole, iam:UntagRole,
+                         iam:PassRole, iam:UpdateAssumeRolePolicy, iam:ListRolePolicies, iam:ListAttachedRolePolicies]
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/${AppStackName}-*
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt DeployRole.Arn

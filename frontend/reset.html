@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reset password · Course Boards</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/config.js"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="./">📌 Course Boards</a></header>
+  <main class="container narrow">
+    <form id="form" class="card stack">
+      <h1>Choose a new password</h1>
+      <div><label for="pw">New password (min. 8 characters)</label><input id="pw" type="password" minlength="8" required autocomplete="new-password"></div>
+      <div><label for="pw2">Repeat password</label><input id="pw2" type="password" minlength="8" required autocomplete="new-password"></div>
+      <div id="msg"></div>
+      <button class="primary" type="submit">Save password</button>
+    </form>
+  </main>
+  <script type="module">
+    import { api, session, el } from "./js/api.js";
+    const token = new URLSearchParams(location.search).get("token");
+    const msg = document.getElementById("msg");
+    if (!token) msg.replaceChildren(el("div", { class: "alert" }, "This link is incomplete. Request a new one from the login page."));
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pw = document.getElementById("pw").value, pw2 = document.getElementById("pw2").value;
+      if (pw !== pw2) return msg.replaceChildren(el("div", { class: "alert" }, "The passwords do not match."));
+      try {
+        const res = await api("POST", "/api/auth/reset", { token, password: pw });
+        session.set(res.token, res.user);
+        msg.replaceChildren(el("div", { class: "alert ok" }, "Password changed — redirecting…"));
+        setTimeout(() => (location.href = "./"), 1200);
+      } catch (err) {
+        msg.replaceChildren(el("div", { class: "alert" }, err.message));
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Course Boards (Padlet-style) - Lambda API + MCP server, DynamoDB, S3
+
+Parameters:
+  SecretKey:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Signs session and anonymous-identity tokens. Changing it logs everybody out.
+  FrontendUrl:
+    Type: String
+    Description: Public URL of the GitHub Pages site, no trailing slash (used in emails and board links)
+  MailFrom:
+    Type: String
+    Default: ""
+    Description: Sender address (verified in Brevo or SES). Empty = emails are only written to the logs.
+  BrevoApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Brevo API key. If set, emails are sent via Brevo instead of SES (MailFrom must be a Brevo-verified sender).
+  AllowedEmailDomains:
+    Type: String
+    Default: ""
+    Description: Comma separated email domains allowed to register. Empty = anyone.
+  LogLevel:
+    Type: String
+    Default: INFO
+    AllowedValues: [DEBUG, INFO, WARNING, ERROR]
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+        - { AttributeName: GSI1PK, AttributeType: S }
+        - { AttributeName: GSI1SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - { AttributeName: GSI1PK, KeyType: HASH }
+            - { AttributeName: GSI1SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification: { AttributeName: ttl, Enabled: true }
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }   # data rollback, 35 days
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration: { Status: Enabled }   # deleted/overwritten files recoverable for 30 days
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: ["*"]
+            AllowedMethods: [GET, PUT]
+            AllowedHeaders: ["*"]
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - { Id: raw-uploads, Status: Enabled, Prefix: uploads/, ExpirationInDays: 1 }
+          - { Id: exports, Status: Enabled, Prefix: exports/, ExpirationInDays: 7 }
+          - { Id: old-versions, Status: Enabled, NoncurrentVersionExpiration: { NoncurrentDays: 30 } }
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-api
+      RetentionInDays: 30
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-api
+      CodeUri: backend/src/
+      Handler: padlet.handler.lambda_handler
+      Runtime: python3.12
+      Architectures: [x86_64]
+      MemorySize: 2048          # PDF rendering is CPU bound; more memory = more CPU
+      Timeout: 300
+      LoggingConfig:
+        LogGroup: !Ref ApiLogGroup
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+          BUCKET_NAME: !Ref MediaBucket
+          SECRET_KEY: !Ref SecretKey
+          FRONTEND_URL: !Ref FrontendUrl
+          MAIL_FROM: !Ref MailFrom
+          BREVO_API_KEY: !Ref BrevoApiKey
+          ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
+          LOG_LEVEL: !Ref LogLevel
+          LOG_GROUP_NAME: !Ref ApiLogGroup
+      FunctionUrlConfig:
+        AuthType: NONE          # auth is done in the app (session tokens / API keys)
+        Cors:
+          AllowOrigins: ["*"]
+          AllowMethods: ["*"]
+          AllowHeaders: [content-type, authorization, x-anon-token, mcp-protocol-version, mcp-session-id]
+          MaxAge: 3600
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref Table }
+        - S3CrudPolicy: { BucketName: !Ref MediaBucket }
+        - Statement:
+            - Effect: Allow
+              Action: [ses:SendEmail, ses:SendRawEmail]
+              Resource: "*"
+            - Effect: Allow
+              Action: [logs:FilterLogEvents]
+              Resource: !GetAtt ApiLogGroup.Arn
+
+  # Public function URLs need lambda:InvokeFunction in addition to the InvokeFunctionUrl permission SAM adds.
+  ApiFunctionPublicInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the API (frontend config) - MCP connector URL is <ApiUrl>mcp/<api key>
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  TableName:
+    Value: !Ref Table
+  BucketName:
+    Value: !Ref MediaBucket
+  LogGroup:
+    Value: !Ref ApiLogGroup
