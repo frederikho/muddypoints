@@ -63,10 +63,20 @@ def create_space(user: dict, name) -> dict:
 
 
 def list_spaces(user: dict) -> list[dict]:
+    """The user's spaces with role, counts and most recent activity (newest activity first)."""
     memberships = db.query_gsi1(f"USER#{user['user_id']}", "SPACE#")
     roles = {m["space_id"]: m["role"] for m in memberships}
-    spaces = db.batch_get([(f"SPACE#{sid}", "META") for sid in roles])
-    return sorted((public_space(s, roles[s["space_id"]]) for s in spaces), key=lambda s: s["name"].lower())
+    out = []
+    for space in db.batch_get([(f"SPACE#{sid}", "META") for sid in roles]):
+        sid = space["space_id"]
+        boards = db.query_gsi1(f"SPACE#{sid}", "BOARD#")
+        activity = [(max(filter(None, (b.get("updated_at"), b.get("last_activity_at"))), default=""), b["name"])
+                    for b in boards]
+        latest = max(activity, default=(None, None))
+        out.append({**public_space(space, roles[sid]), "board_count": len(boards),
+                    "member_count": len(db.query(f"SPACE#{sid}", "MEMBER#")),
+                    "last_activity_at": latest[0] or space.get("created_at"), "last_activity_board": latest[1]})
+    return sorted(out, key=lambda s: s["last_activity_at"] or "", reverse=True)
 
 
 def rename_space(user: dict, space_id: str, name) -> dict:

@@ -82,3 +82,29 @@ def test_promote_and_remove(client, owner):
     assert client.patch(f"/api/spaces/{sid}/members/{bob_user['user_id']}", {"role": "owner"})[0] == 200
     assert bob.delete(f"/api/boards/{owner['board_id']}")[0] == 200
     assert client.delete(f"/api/spaces/{sid}/members/{bob_user['user_id']}")[0] == 200
+
+
+def test_space_list_details(client, owner):
+    import time
+    from conftest import make_pdf, upload
+    s, d = client.get("/api/spaces")
+    sp = d["spaces"][0]
+    assert sp["board_count"] == 1 and sp["member_count"] == 1 and sp["last_activity_board"] == "Week 1"
+    before = sp["last_activity_at"]
+    # a second space with newer activity is listed first
+    _, other = client.post("/api/spaces", {"name": "Algebra"})
+    time.sleep(1.1)
+    _, b2 = client.post(f"/api/spaces/{other['space']['space_id']}/boards", {"name": "Intro"})
+    names = [x["name"] for x in client.get("/api/spaces")[1]["spaces"]]
+    assert names == ["Algebra", "Statistics 101"]
+    # a student comment counts as activity
+    upload(client, owner["board_id"], [("w.pdf", "application/pdf", make_pdf(1))])
+    slide = client.get(f"/api/boards/{owner['board_id']}")[1]["slides"][0]["slide_id"]
+    time.sleep(1.1)
+    anon = Client()
+    anon.anon = anon.post("/api/identity", token=None)[1]["token"]
+    anon.post(f"/api/boards/{owner['board_id']}/comments", {"slide_id": slide, "text": "?"}, token=None)
+    spaces = client.get("/api/spaces")[1]["spaces"]
+    assert spaces[0]["name"] == "Statistics 101" and spaces[0]["last_activity_at"] > before
+    board = client.get(f"/api/spaces/{owner['space_id']}")[1]["boards"][0]
+    assert board["last_activity_at"] == spaces[0]["last_activity_at"]

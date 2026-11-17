@@ -40,7 +40,13 @@ def public_board(board: dict) -> dict:
     return {"board_id": board["board_id"], "space_id": board["space_id"], "name": board["name"],
             "locked": bool(board.get("locked")), "created_at": board.get("created_at"),
             "updated_at": board.get("updated_at"), "url": board_url(board["board_id"]),
-            "background": board.get("background") if board.get("background") in BACKGROUNDS else "plain"}
+            "background": board.get("background") if board.get("background") in BACKGROUNDS else "plain",
+            "last_activity_at": last_activity(board)}
+
+
+def last_activity(board: dict) -> str | None:
+    """Latest of: board/slide changes (updated_at) and the newest comment (last_activity_at)."""
+    return max(filter(None, (board.get("updated_at"), board.get("last_activity_at"))), default=None)
 
 
 def _check_background(background) -> str:
@@ -152,6 +158,7 @@ def add_comment(board_id: str, slide_id, text, viewer: Viewer) -> dict:
             "slide_id": slide_id, "text": text, "author_name": viewer.name, "author_key": viewer.key,
             "is_staff": is_staff, "likes": 0, "created_at": now_iso()}
     db.put(item)
+    db.update(f"BOARD#{board_id}", "META", {"last_activity_at": item["created_at"]})
     log_event(logger, logging.INFO, "comment added", board_id=board_id, slide_id=slide_id, comment_id=comment_id)
     return {"comment_id": comment_id, "slide_id": slide_id, "text": text, "author_name": viewer.name,
             "is_staff": is_staff, "created_at": item["created_at"], "likes": 0, "liked": False, "mine": True}

@@ -1,5 +1,5 @@
 // Dashboard SPA (hash routing): #/ spaces, #/space/<id>, #/account. Login/registration when logged out.
-import { api, session, el, toast, showError, busy, copyText, fmtDate, API_ORIGIN, backgroundPicker } from "./api.js";
+import { api, session, el, toast, showError, busy, copyText, fmtDate, timeAgo, API_ORIGIN, backgroundPicker } from "./api.js";
 
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
@@ -70,31 +70,94 @@ function authView(tab = "login") {
     });
   }
   show(tab);
-  main.replaceChildren(el("div", { class: "container narrow", style: "padding-top:24px" },
-    el("h1", {}, "Muddy Points"),
-    el("p", { class: "muted" }, "Share lecture slides with students and collect their questions. Staff accounts only — students just open the board link."),
-    el("div", { class: "card" }, tabs, holder)));
+  const authCard = el("div", { class: "card auth-card", id: "auth" }, tabs, holder);
+  const goAuth = (which) => { show(which); authCard.scrollIntoView({ behavior: "smooth", block: "center" }); authCard.querySelector("input")?.focus(); };
+
+  const mockComment = (who, text, likes, staff = false) => el("div", { class: "comment" },
+    el("div", { class: `who ${staff ? "staff" : ""}` }, who, staff ? " · staff" : ""),
+    el("div", { class: "text" }, text),
+    el("div", { class: "meta" }, el("span", {}, "just now"), el("span", { class: `like ${likes > 2 ? "on" : ""}` }, likes > 2 ? "♥ " : "♡ ", likes)));
+  const mock = el("div", { class: "mock bg-cork", "aria-hidden": "true" },
+    el("div", { class: "card mock-slide" },
+      el("div", { class: "mock-img" }, el("div", { class: "mock-title" }, "Sample variance"),
+        el("div", { class: "mock-formula" }, "s² = Σ (xᵢ − x̄)² / (n − 1)")),
+      el("div", { class: "mock-comments" },
+        mockComment("🎭 Lazy Lizard", "Why n − 1 and not n?", 7),
+        mockComment("🎭 Curious Capybara", "Same question! 🙋", 3),
+        mockComment("Prof. Alice", "Great point — we'll start with this on Tuesday.", 1, true))));
+
+  const step = (n, title, text) => el("div", { class: "step" }, el("div", { class: "step-n" }, n), el("h3", {}, title), el("p", { class: "muted" }, text));
+  const feature = (icon, title, text) => el("div", { class: "card feature" }, el("div", { class: "feature-icon" }, icon), el("h3", {}, title), el("p", { class: "muted small" }, text));
+
+  main.replaceChildren(el("div", { class: "landing" },
+    el("section", { class: "hero" },
+      el("div", { class: "hero-text" },
+        el("div", { class: "eyebrow" }, "For lecturers & their students"),
+        el("h1", {}, "Find the ", el("span", { class: "hl" }, "muddiest points"), " before the lecture starts."),
+        el("p", { class: "lead" }, "Post your slides, share one link, and let students flag anonymously what they didn't understand. You walk into class knowing exactly what to explain."),
+        el("div", { class: "row" },
+          el("button", { class: "primary lg", onclick: () => goAuth("register") }, "Create a staff account"),
+          el("button", { class: "lg", onclick: () => goAuth("login") }, "Log in")),
+        el("p", { class: "muted small" }, "Students don't need an account — they just open the board link from their lecturer.")),
+      mock),
+    el("section", {},
+      el("h2", { class: "center" }, "How it works"),
+      el("div", { class: "steps" },
+        step("1", "Upload the slides", "Drop in a PDF or a few images. Every page becomes a slide on the class board."),
+        step("2", "Share one link", "Students read before class and comment on the slides that confuse them — anonymously, under a funny name like “Lazy Lizard”."),
+        step("3", "Teach what matters", "Likes show which questions many share. Export everything as a PDF for OLAT and load next week's material onto the same link."))),
+    el("section", {},
+      el("div", { class: "features" },
+        feature("🎭", "Anonymous, but friendly", "No sign-up for students. Each gets a random name for the week, so asking a “stupid question” costs nothing."),
+        feature("♥", "Hot spots at a glance", "Students like slides and each other's questions — the muddiest points float to the top."),
+        feature("🔗", "One link per class", "Replace the material every week; the link and students' bookmarks stay the same. Old comments are archived as PDF."),
+        feature("📄", "PDF export", "Every slide with its comments in one tidy PDF, ready to upload to OLAT or share with your team."),
+        feature("👥", "Teaching teams", "Share a course space with colleagues and tutors. Owners manage, editors help out."),
+        feature("✨", "Works with Claude", "Connect Claude and just ask: “export this week's questions and put up lecture 5”."))),
+    el("section", { class: "auth-section" },
+      el("div", {}, el("h2", {}, "Ready for your next lecture?"),
+        el("p", { class: "muted" }, "Staff accounts are free. Create a space for your course, add one board per class and share the link with your students.")),
+      authCard),
+    el("footer", { class: "muted small center" }, "Muddy Points — named after the “muddiest point” classroom technique.")));
 }
 
 // --- spaces ----------------------------------------------------------------------------------
+
+// A quiet "+ New …" link that expands into a one-line form. onCreate(name) may throw (shown as toast).
+function inlineCreate(label, placeholder, onCreate) {
+  const input = el("input", { type: "text", placeholder, maxlength: 120, required: true });
+  const form = el("form", { class: "row inline-create hidden" }, input,
+    el("button", { class: "primary sm", type: "submit" }, "Create"),
+    el("button", { class: "ghost sm", type: "button", onclick: () => toggle(false) }, "Cancel"));
+  const button = el("button", { class: "ghost sm", type: "button", onclick: () => toggle(true) }, `+ ${label}`);
+  function toggle(open) {
+    form.classList.toggle("hidden", !open);
+    button.classList.toggle("hidden", open);
+    if (open) input.focus(); else input.value = "";
+  }
+  form.addEventListener("submit", (e) => { e.preventDefault(); busy(form.querySelector("button[type=submit]"), () => onCreate(input.value)); });
+  return { button, form };
+}
+
 async function spacesView() {
   const { spaces } = await api("GET", "/api/spaces");
-  const input = el("input", { type: "text", placeholder: "New space, e.g. “Statistics 101 – WS 26/27”", maxlength: 120 });
-  const create = el("form", { class: "row", style: "max-width:560px" }, input, el("button", { class: "primary", type: "submit" }, "Create space"));
-  create.addEventListener("submit", (e) => {
-    e.preventDefault();
-    busy(create.querySelector("button"), async () => {
-      const { space } = await api("POST", "/api/spaces", { name: input.value });
-      location.hash = `#/space/${space.space_id}`;
-    });
+  const create = inlineCreate("New space", "Course name, e.g. “Statistics 101 – WS 26/27”", async (name) => {
+    const { space } = await api("POST", "/api/spaces", { name });
+    location.hash = `#/space/${space.space_id}`;
   });
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   main.replaceChildren(
-    el("h1", {}, "Your spaces"),
-    create,
-    el("div", { class: "grid", style: "margin-top:20px" },
-      spaces.length ? spaces.map((s) => el("div", { class: "card link", onclick: () => (location.hash = `#/space/${s.space_id}`) },
-        el("h3", {}, s.name), el("span", { class: `badge ${s.role}` }, s.role)))
-        : el("p", { class: "muted" }, "No spaces yet. A space usually is one course; inside it you create one board per class.")));
+    el("div", { class: "section-title", style: "margin-top:0" }, el("h1", { style: "margin:0" }, "Your spaces"), create.button),
+    create.form,
+    el("div", { class: "grid", style: "margin-top:16px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))" },
+      spaces.length ? spaces.map((s) => el("div", { class: "card link space-card", onclick: () => (location.hash = `#/space/${s.space_id}`) },
+        el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" },
+          el("h3", { style: "margin:0" }, s.name), el("span", { class: `badge ${s.role}` }, s.role)),
+        el("div", { class: "muted small" }, `${plural(s.board_count, "board")} · ${plural(s.member_count, "member")}`),
+        el("div", { class: "small" }, "Last activity ",
+          el("strong", { title: fmtDate(s.last_activity_at) }, timeAgo(s.last_activity_at)),
+          s.last_activity_board ? el("span", { class: "muted" }, ` · ${s.last_activity_board}`) : "")))
+        : el("p", { class: "muted" }, "No spaces yet. A space usually is one course; inside it you create one board per class. Use “+ New space” above.")));
 }
 
 async function spaceView(spaceId) {
@@ -117,11 +180,8 @@ async function spaceView(spaceId) {
     } }, "Delete space")));
 
   // boards
-  const boardName = el("input", { type: "text", placeholder: "New board, e.g. “Lecture 3”", maxlength: 120 });
-  const boardForm = el("form", { class: "row", style: "max-width:560px" }, boardName, el("button", { class: "primary", type: "submit" }, "Create board"));
-  boardForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    busy(boardForm.querySelector("button"), async () => { await api("POST", `/api/spaces/${spaceId}/boards`, { name: boardName.value }); refresh(); });
+  const createBoard = inlineCreate("New board", "Board name, e.g. “Lecture 3”", async (name) => {
+    await api("POST", `/api/spaces/${spaceId}/boards`, { name }); refresh();
   });
   const boardCards = boards.map((b) => {
     const thumb = el("a", { class: `board-thumb bg-${b.background || "plain"}`, href: `board.html?b=${b.board_id}`, title: "Open board" },
@@ -132,7 +192,8 @@ async function spaceView(spaceId) {
       b.background = bg;
     });
     return el("div", { class: "card board-card" }, thumb, el("div", { class: "body" },
-      el("div", { class: "row muted small" }, "Updated ", fmtDate(b.updated_at), b.locked && el("span", { class: "badge locked" }, "locked")),
+      el("div", { class: "row muted small" }, el("span", { title: fmtDate(b.last_activity_at) }, "Last activity ", timeAgo(b.last_activity_at)),
+        b.locked && el("span", { class: "badge locked" }, "comments closed")),
       el("div", { class: "actions" },
         el("button", { class: "sm", onclick: () => copyText(boardLink(b.board_id)) }, "Copy link"),
         el("button", { class: "sm", onclick: async () => {
@@ -140,7 +201,7 @@ async function spaceView(spaceId) {
           if (name) { await api("PATCH", `/api/boards/${b.board_id}`, { name }).catch(showError); refresh(); }
         } }, "Rename"),
         el("button", { class: "sm", onclick: async () => { await api("PATCH", `/api/boards/${b.board_id}`, { locked: !b.locked }).catch(showError); refresh(); } },
-          b.locked ? "Unlock" : "Lock"),
+          b.locked ? "Reopen comments" : "Close comments"),
         isOwner && el("button", { class: "sm danger", onclick: async () => {
           if (!confirm(`Delete board “${b.name}” with all slides and comments? Its link stops working.`)) return;
           await api("DELETE", `/api/boards/${b.board_id}`).catch(showError); refresh();
@@ -187,8 +248,8 @@ async function spaceView(spaceId) {
     header,
     el("p", { class: "muted small" }, `You are ${space.role === "owner" ? "an owner" : "an editor"} of this space.`,
       space.role === "editor" ? " Editors can do everything except deleting and managing roles." : ""),
-    el("div", { class: "section-title" }, el("h2", {}, "Boards")),
-    boardForm,
+    el("div", { class: "section-title" }, el("h2", { style: "margin:0" }, "Boards"), createBoard.button),
+    createBoard.form,
     boards.length ? el("div", { class: "grid", style: "margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))" }, boardCards)
       : el("p", { class: "muted" }, "No boards yet."),
     el("div", { class: "section-title" }, el("h2", {}, "Members")),
