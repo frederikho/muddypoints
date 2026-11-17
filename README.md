@@ -1,3 +1,5 @@
+<p align="center"><img src="frontend/img/logo-512.png" alt="Muddy Points logo" width="120"></p>
+
 # Muddy Points
 
 A small, self-hosted tool for collecting the *muddiest points* of a lecture. Each class gets one **board**: you upload the lecture slides (PDF or images), share the link, students look at the material before class and **anonymously** comment on and like the slides they don't understand. After class you export everything as a **PDF** (slides plus comments) for OLAT and load next week's material onto the same link.
