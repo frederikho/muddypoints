@@ -1,6 +1,6 @@
 import json
 
-from padlet import mailer
+from muddypoints import mailer
 
 
 class FakeResponse:
@@ -25,7 +25,7 @@ def test_brevo(monkeypatch):
     def fake_urlopen(req, timeout):
         sent.update(url=req.full_url, headers=dict(req.headers), body=json.loads(req.data))
         return FakeResponse()
-    monkeypatch.setattr("padlet.mailer.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("muddypoints.mailer.urllib.request.urlopen", fake_urlopen)
     assert mailer.send("student@uni.example", "Reset", "link") is True
     assert sent["url"] == mailer.BREVO_URL
     assert sent["headers"]["Api-key"] == "xkeysib-test"
@@ -39,5 +39,5 @@ def test_brevo_failure_does_not_raise(monkeypatch):
 
     def boom(req, timeout):
         raise OSError("network down")
-    monkeypatch.setattr("padlet.mailer.urllib.request.urlopen", boom)
+    monkeypatch.setattr("muddypoints.mailer.urllib.request.urlopen", boom)
     assert mailer.send("x@uni.example", "s", "b") is False

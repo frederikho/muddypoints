@@ -12,11 +12,11 @@ def _env(name: str, default: str = "") -> str:
 class Settings:
     @property
     def table_name(self) -> str:
-        return _env("TABLE_NAME", "padlet-dev")
+        return _env("TABLE_NAME", "muddypoints-dev")
 
     @property
     def bucket_name(self) -> str:
-        return _env("BUCKET_NAME", "padlet-dev-media")
+        return _env("BUCKET_NAME", "muddypoints-dev-media")
 
     @property
     def secret_key(self) -> str:
@@ -34,7 +34,7 @@ class Settings:
 
     @property
     def mail_from_name(self) -> str:
-        return _env("MAIL_FROM_NAME", "Course Boards")
+        return _env("MAIL_FROM_NAME", "Muddy Points")
 
     @property
     def brevo_api_key(self) -> str:

@@ -2,7 +2,7 @@
 import { api, session, storage, el, toast, showError, busy, timeAgo, ApiError } from "./api.js";
 
 const boardId = new URLSearchParams(location.search).get("b");
-const IDENTITY_KEY = "padlet.identity";
+const IDENTITY_KEY = "muddypoints.identity";
 const REFRESH_MS = 20000;
 
 let state = null;           // last response of GET /api/boards/<id>
@@ -122,7 +122,7 @@ function lightbox(src) {
 
 function renderAll() {
   const { board, slides, viewer, my_role } = state;
-  document.title = `${board.name} · Course Boards`;
+  document.title = `${board.name} · Muddy Points`;
   document.getElementById("board-title").textContent = board.name;
   document.getElementById("locked").classList.toggle("hidden", !board.locked);
   document.getElementById("who").replaceChildren(viewer ? el("span", { class: "identity-chip", title: viewer.is_user ? "Logged in" : "Your anonymous name for this week (assigned randomly)" },

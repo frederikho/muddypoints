@@ -10,7 +10,7 @@ from .http import ApiError, Request, Router
 from .log import bind, get_logger, log_event
 
 router = Router()
-logger = get_logger("padlet.routes")
+logger = get_logger("muddypoints.routes")
 frontend_logger = get_logger("frontend")
 
 

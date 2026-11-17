@@ -7,16 +7,16 @@ import pytest
 os.environ.update({
     "AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing", "AWS_SESSION_TOKEN": "testing",
     "AWS_REGION": "eu-central-1", "AWS_DEFAULT_REGION": "eu-central-1",
-    "TABLE_NAME": "padlet-test", "BUCKET_NAME": "padlet-test-media", "SECRET_KEY": "test-secret",
-    "FRONTEND_URL": "https://example.github.io/padlet", "MAIL_FROM": "", "LOG_LEVEL": "WARNING",
+    "TABLE_NAME": "muddypoints-test", "BUCKET_NAME": "muddypoints-test-media", "SECRET_KEY": "test-secret",
+    "FRONTEND_URL": "https://example.github.io/muddypoints", "MAIL_FROM": "", "LOG_LEVEL": "WARNING",
 })
 os.environ.pop("AWS_ENDPOINT_URL", None)
 
 from moto import mock_aws  # noqa: E402
 
-from padlet import aws  # noqa: E402
-from padlet.handler import lambda_handler  # noqa: E402
-from padlet.localinfra import create_resources  # noqa: E402
+from muddypoints import aws  # noqa: E402
+from muddypoints.handler import lambda_handler  # noqa: E402
+from muddypoints.localinfra import create_resources  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +105,7 @@ def make_png(w=400, h=300) -> bytes:
 
 def upload(client: Client, board_id: str, files: list[tuple[str, str, bytes]], mode="append", archive=True):
     """Simulate the browser flow: prepare -> PUT to S3 -> confirm."""
-    from padlet.config import settings
+    from muddypoints.config import settings
     status, data = client.post(f"/api/boards/{board_id}/uploads",
                                {"files": [{"filename": n, "content_type": ct} for n, ct, _ in files]})
     assert status == 200, data

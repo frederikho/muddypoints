@@ -1,9 +1,9 @@
 // Shared helpers: API client, session storage, error reporting, tiny DOM helpers.
-const cfg = window.PADLET_CONFIG || {};
+const cfg = window.MUDDYPOINTS_CONFIG || {};
 export const API_BASE = (cfg.apiBase || "").replace(/\/$/, "");
 export const API_ORIGIN = API_BASE || window.location.origin;
 
-const SESSION_KEY = "padlet.session";
+const SESSION_KEY = "muddypoints.session";
 
 function storageGet(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
 function storageSet(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ } }

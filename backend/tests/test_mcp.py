@@ -62,7 +62,7 @@ def test_tools_end_to_end(mcp, owner, monkeypatch):
     assert [b["name"] for b in boards] == ["Week 1", "Week 2"]
 
     pdf = make_pdf(2)
-    monkeypatch.setattr("padlet.media.download", lambda url: (pdf, "lecture2.pdf"))
+    monkeypatch.setattr("muddypoints.media.download", lambda url: (pdf, "lecture2.pdf"))
     res, err = mcp.call("import_slides_from_url", board_id=board["board_id"], url="https://x.example/l.pdf")
     assert not err and len(res["added_slides"]) == 2
     info, _ = mcp.call("get_board", board_id=board["board_id"])
@@ -114,7 +114,7 @@ def test_get_logs_permissions(mcp):
 
 def test_api_key_never_logged(mcp):
     import logging
-    from padlet.log import JsonFormatter
+    from muddypoints.log import JsonFormatter
     lines = []
 
     class Capture(logging.Handler):

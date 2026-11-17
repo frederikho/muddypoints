@@ -2,7 +2,7 @@ import time
 
 from conftest import register
 
-from padlet import auth, db
+from muddypoints import auth, db
 
 
 def test_password_hash_roundtrip():
@@ -61,13 +61,13 @@ def test_password_reset_flow(client, monkeypatch):
     register(client)
     old_token = client.token
     sent = []
-    monkeypatch.setattr("padlet.mailer.send", lambda to, subject, body: sent.append((to, body)) or True)
+    monkeypatch.setattr("muddypoints.mailer.send", lambda to, subject, body: sent.append((to, body)) or True)
     assert client.post("/api/auth/forgot", {"email": "alice@uni.example"}, token=None)[0] == 200
     # same answer for unknown emails (no account enumeration), but no mail
     assert client.post("/api/auth/forgot", {"email": "nobody@uni.example"}, token=None)[0] == 200
     assert len(sent) == 1 and sent[0][0] == "alice@uni.example"
     link = next(w for w in sent[0][1].split() if w.startswith("https://"))
-    assert link.startswith("https://example.github.io/padlet/reset.html?token=")
+    assert link.startswith("https://example.github.io/muddypoints/reset.html?token=")
     token = link.split("token=")[1]
     s, d = client.post("/api/auth/reset", {"token": token, "password": "newpassword1"}, token=None)
     assert s == 200 and d["token"]
@@ -80,7 +80,7 @@ def test_password_reset_flow(client, monkeypatch):
 
 def test_expired_reset_token(client):
     register(client)
-    from padlet import auth as a
+    from muddypoints import auth as a
     token = "abc"
     db.put({"PK": f"RESET#{a.sha256(token)}", "SK": "RESET", "user_id": "x", "ttl": int(time.time()) - 5})
     assert client.post("/api/auth/reset", {"token": token, "password": "newpassword1"}, token=None)[0] == 400

@@ -1,6 +1,6 @@
-# Course Boards
+# Muddy Points
 
-A small, self-hosted Padlet alternative for lectures. Each class gets one **board**: you upload the lecture slides (PDF or images), share the link, students look at the material before class and **anonymously** comment on and like the slides they don't understand. After class you export everything as a **PDF** (slides plus comments) for OLAT and load next week's material onto the same link.
+A small, self-hosted tool for collecting the *muddiest points* of a lecture. Each class gets one **board**: you upload the lecture slides (PDF or images), share the link, students look at the material before class and **anonymously** comment on and like the slides they don't understand. After class you export everything as a **PDF** (slides plus comments) for OLAT and load next week's material onto the same link.
 
 Admins can do all of this from **Claude** too: through an MCP connector ("export this week's comments and replace the slides with this PDF") and, with the GitHub repo connected, by changing the app's code.
 
@@ -67,9 +67,10 @@ This gives GitHub Actions on `main` (and only there) a role that can deploy the 
 | Secret | `SECRET_KEY` | A long random string: `python3 -c "import secrets;print(secrets.token_urlsafe(48))"`. Changing it later logs everyone out. |
 | Variable | `AWS_ROLE_ARN` | The RoleArn from step 1 |
 | Variable | `AWS_REGION` | e.g. `eu-central-1` |
-| Variable *(optional)* | `MAIL_FROM` | A sender address verified in Amazon SES (needed for password-reset and invite emails, see step 4) |
+| Secret *(optional)* | `BREVO_API_KEY` | Brevo API key for sending emails (see step 4) |
+| Variable *(optional)* | `MAIL_FROM` | Sender address, verified in Brevo (or SES). Needed for password-reset and invite emails. |
 | Variable *(optional)* | `ALLOWED_EMAIL_DOMAINS` | e.g. `uni-example.de`. Only these emails may register. **Recommended.** |
-| Variable *(optional)* | `STACK_NAME` | Defaults to `padlet`. Must match `AppStackName` from step 1. |
+| Variable *(optional)* | `STACK_NAME` | Defaults to `muddypoints`. Must match `AppStackName` from step 1. |
 | Variable *(optional)* | `FRONTEND_URL` | Only if you use a custom domain for Pages |
 
 **Settings → Pages → Source:** select **GitHub Actions**.
@@ -82,11 +83,17 @@ Then open the site, register, create a space and a board.
 
 ### 4. Email (password reset, invitations)
 
-Without `MAIL_FROM` the app still works, but emails are only written to the logs. To send real emails:
+Without `MAIL_FROM` the app still works, but emails are only written to the logs. Recommended: **Brevo** (free for 300 emails a day, can send to anyone):
 
-1. In the AWS console go to **Amazon SES → Identities → Create identity**, verify your sender address or domain (same region as the app).
-2. A new SES account is in the *sandbox* and can only send to verified addresses. Request **production access** in SES (usually approved within a day), or verify each colleague's address.
-3. Set the `MAIL_FROM` variable and redeploy.
+1. Create an account at brevo.com. Under **Senders, Domains & Dedicated IPs** add and verify your sender address.
+2. Under **SMTP & API → API Keys** create an API key.
+3. Save both in GitHub, then redeploy (push, or Actions → Run workflow):
+   ```bash
+   gh secret set BREVO_API_KEY          # paste the key when asked
+   gh variable set MAIL_FROM -b "boards@your-university.de"
+   ```
+
+Alternative: Amazon SES. Verify the sender in SES (same region), request production access (otherwise SES only sends to verified addresses), set only `MAIL_FROM`, and leave `BREVO_API_KEY` unset.
 
 ### 5. Connect Claude (MCP)
 
@@ -104,7 +111,7 @@ For code changes, also connect the GitHub repository in Claude. Anything Claude 
 
 ## Operations
 
-**Logs**: everything (backend and browser errors) goes to CloudWatch log group `/aws/lambda/padlet-api` as JSON lines with a `request_id`, kept 30 days. Admins who own a space can ask Claude *"show me the errors of the last hour"* (MCP tool `get_logs`).
+**Logs**: everything (backend and browser errors) goes to CloudWatch log group `/aws/lambda/muddypoints-api` as JSON lines with a `request_id`, kept 30 days. Admins who own a space can ask Claude *"show me the errors of the last hour"* (MCP tool `get_logs`).
 
 **Rolling back code**:
 - *Normal*: revert the bad commit on `main` (`git revert <sha>`, or ask Claude to). The pipeline redeploys.

@@ -4,9 +4,9 @@ import logging
 import pytest
 from conftest import Client
 
-from padlet import media
-from padlet.http import ApiError
-from padlet.log import JsonFormatter, bind, clear
+from muddypoints import media
+from muddypoints.http import ApiError
+from muddypoints.log import JsonFormatter, bind, clear
 
 
 def test_health_and_routing(client):
@@ -20,7 +20,7 @@ def test_health_and_routing(client):
 def test_unhandled_exception_returns_500(client, monkeypatch):
     def boom(req):
         raise RuntimeError("kaputt")
-    monkeypatch.setattr("padlet.routes.identity.new_identity", lambda: boom(None))
+    monkeypatch.setattr("muddypoints.routes.identity.new_identity", lambda: boom(None))
     s, d = client.post("/api/identity")
     assert s == 500 and d["error"]["code"] == "internal_error" and "kaputt" not in json.dumps(d)
 

@@ -1,6 +1,6 @@
 from conftest import Client, make_pdf, make_png, register, upload
 
-from padlet import identity
+from muddypoints import identity
 
 
 def anon_client() -> Client:
@@ -147,7 +147,7 @@ def test_reorder_delete_clear(client, owner):
 
 def test_export_pdf(client, owner):
     import pymupdf
-    from padlet import export
+    from muddypoints import export
     bid = owner["board_id"]
     upload(client, bid, [("w1.pdf", "application/pdf", make_pdf(2))])
     slide = Client().get(f"/api/boards/{bid}")[1]["slides"][0]["slide_id"]

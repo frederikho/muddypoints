@@ -10,8 +10,8 @@ Parameters:
     Description: owner/name of the repository, e.g. my-chair/course-boards
   AppStackName:
     Type: String
-    Default: padlet
-    Description: Must match vars.STACK_NAME (default "padlet") used by the deploy workflow
+    Default: muddypoints
+    Description: Must match vars.STACK_NAME (default "muddypoints") used by the deploy workflow
   CreateOIDCProvider:
     Type: String
     Default: "true"

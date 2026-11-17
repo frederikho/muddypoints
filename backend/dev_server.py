@@ -29,8 +29,8 @@ def start_mock_aws(port: int) -> None:
     os.environ.update({"AWS_ACCESS_KEY_ID": "dev", "AWS_SECRET_ACCESS_KEY": "dev", "AWS_REGION": "eu-central-1",
                        "AWS_ENDPOINT_URL": f"http://localhost:{port}"})
     ThreadedMotoServer(port=port, verbose=False).start()
-    from padlet import aws
-    from padlet.localinfra import create_resources
+    from muddypoints import aws
+    from muddypoints.localinfra import create_resources
     aws.reset()
     create_resources()
     print(f"moto (fake AWS) running on :{port}")
@@ -52,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(204, {}, b"")
 
     def _api(self):
-        from padlet.handler import lambda_handler
+        from muddypoints.handler import lambda_handler
         url = urlsplit(self.path)
         raw = self.rfile.read(int(self.headers.get("content-length") or 0))
         event = {"rawPath": url.path, "rawQueryString": url.query, "headers": dict(self.headers.items()),
@@ -94,7 +94,7 @@ def main() -> None:
     os.environ.setdefault("LOG_LEVEL", "INFO")
     if not args.aws:
         start_mock_aws(args.moto_port)
-    print(f"Padlet dev server on http://localhost:{args.port}  (Ctrl+C to stop)")
+    print(f"Muddy Points dev server on http://localhost:{args.port}  (Ctrl+C to stop)")
     print(f"MCP endpoint: http://localhost:{args.port}/mcp/<api key>")
     ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
 

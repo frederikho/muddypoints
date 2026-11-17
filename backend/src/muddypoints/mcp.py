@@ -18,7 +18,7 @@ from .log import bind, get_logger, log_event
 
 logger = get_logger(__name__)
 SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
-INSTRUCTIONS = """Admin interface of the course feedback boards (a Padlet-like tool).
+INSTRUCTIONS = """Admin interface of the course feedback boards (Muddy Points).
 Hierarchy: space (e.g. a course) -> boards (one public link per class) -> slides (images) -> comments/likes.
 Students comment anonymously on slides via the public board URL.
 Typical weekly workflow for a board: export_board_pdf (save the comments for OLAT) and then
@@ -289,7 +289,7 @@ def _dispatch(user: dict, msg: dict) -> dict | None:
         return _result(msg_id, {
             "protocolVersion": requested if requested in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0],
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "padlet-boards", "version": __version__},
+            "serverInfo": {"name": "muddypoints", "version": __version__},
             "instructions": INSTRUCTIONS,
         })
     if method == "ping":

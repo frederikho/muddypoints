@@ -8,7 +8,7 @@ from .http import ApiError, Request, error_response, json_response
 from .routes import router
 from .util import new_id
 
-logger = log.get_logger("padlet.handler")
+logger = log.get_logger("muddypoints.handler")
 
 
 def lambda_handler(event: dict, context) -> dict:

@@ -1,4 +1,4 @@
-"""Generate backend/src/padlet/data/names.txt — alliterative "Adjective Animal" names.
+"""Generate backend/src/muddypoints/data/names.txt — alliterative "Adjective Animal" names.
 
 Run once (the output is committed):  python scripts/generate_names.py
 Editing the word lists below and re-running is safe: existing comments keep the
@@ -66,7 +66,7 @@ ANIMALS = {
 def main() -> None:
     names = sorted({f"{a} {n}" for letter, adjs in ADJECTIVES.items()
                     for a in adjs for n in ANIMALS.get(letter, [])})
-    out = Path(__file__).resolve().parent.parent / "backend/src/padlet/data/names.txt"
+    out = Path(__file__).resolve().parent.parent / "backend/src/muddypoints/data/names.txt"
     out.write_text("\n".join(names) + "\n", encoding="utf-8")
     print(f"wrote {len(names)} names to {out}")
 

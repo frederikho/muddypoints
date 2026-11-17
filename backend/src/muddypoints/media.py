@@ -161,7 +161,7 @@ def download(url: str) -> tuple[bytes, str]:
         raise ApiError(400, "bad_url", "Only http(s) URLs are supported")
     _assert_public_host(parsed.hostname)
     opener = urllib.request.build_opener(_SafeRedirects)
-    request = urllib.request.Request(url, headers={"User-Agent": "padlet-clone/1.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "muddypoints/1.0"})
     try:
         with opener.open(request, timeout=60) as resp:
             data = resp.read(MAX_UPLOAD_BYTES + 1)

@@ -71,7 +71,7 @@ function authView(tab = "login") {
   }
   show(tab);
   main.replaceChildren(el("div", { class: "container narrow", style: "padding-top:24px" },
-    el("h1", {}, "Course Boards"),
+    el("h1", {}, "Muddy Points"),
     el("p", { class: "muted" }, "Share lecture slides with students and collect their questions. Staff accounts only — students just open the board link."),
     el("div", { class: "card" }, tabs, holder)));
 }

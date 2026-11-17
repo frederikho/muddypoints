@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: Course Boards (Padlet-style) - Lambda API + MCP server, DynamoDB, S3
+Description: Muddy Points - Lambda API + MCP server, DynamoDB, S3
 
 Parameters:
   SecretKey:
@@ -87,7 +87,7 @@ Resources:
     Properties:
       FunctionName: !Sub ${AWS::StackName}-api
       CodeUri: backend/src/
-      Handler: padlet.handler.lambda_handler
+      Handler: muddypoints.handler.lambda_handler
       Runtime: python3.12
       Architectures: [x86_64]
       MemorySize: 2048          # PDF rendering is CPU bound; more memory = more CPU
