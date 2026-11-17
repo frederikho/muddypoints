@@ -58,7 +58,9 @@ function renderComments(slide) {
   const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 10;
   list.replaceChildren(...(slide.comments.length
     ? slide.comments.map((c) => commentNode(slide, c))
-    : [el("p", { class: "muted small" }, "No questions yet. Something unclear? Ask here — it's anonymous.")]));
+    : [el("p", { class: "muted small" }, state.board.locked
+      ? "Comments are closed."
+      : "No questions yet. Something unclear? Ask here — it's anonymous.")]));
   if (atBottom) list.scrollTop = list.scrollHeight;
   node.likeBtn.replaceWith(node.likeBtn = slideLikeButton(slide));
   node.count.textContent = `${slide.comments.length} comment${slide.comments.length === 1 ? "" : "s"}`;
