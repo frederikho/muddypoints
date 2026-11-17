@@ -106,5 +106,29 @@ def test_space_list_details(client, owner):
     anon.post(f"/api/boards/{owner['board_id']}/comments", {"slide_id": slide, "text": "?"}, token=None)
     spaces = client.get("/api/spaces")[1]["spaces"]
     assert spaces[0]["name"] == "Statistics 101" and spaces[0]["last_activity_at"] > before
+    assert spaces[0]["boards"][0]["name"] == "Week 1" and spaces[0]["members"][0]["name"] == "Alice"
     board = client.get(f"/api/spaces/{owner['space_id']}")[1]["boards"][0]
     assert board["last_activity_at"] == spaces[0]["last_activity_at"]
+
+
+def test_last_activity_by(client, owner):
+    from conftest import make_pdf, upload
+    bid = owner["board_id"]
+    board = lambda: client.get(f"/api/spaces/{owner['space_id']}")[1]["boards"][0]
+    assert board()["last_activity_by"] == "Alice"  # creator
+    bob = Client()
+    register(bob, email="bob@uni.example", name="Bob")
+    client.post(f"/api/spaces/{owner['space_id']}/members", {"email": "bob@uni.example"})
+    upload(bob, bid, [("w.pdf", "application/pdf", make_pdf(1))])
+    assert board()["last_activity_by"] == "Bob"
+    slide = client.get(f"/api/boards/{bid}")[1]["slides"][0]["slide_id"]
+    student = Client()
+    ident = student.post("/api/identity", token=None)[1]
+    student.anon = ident["token"]
+    student.post(f"/api/boards/{bid}/comments", {"slide_id": slide, "text": "?"}, token=None)
+    assert board()["last_activity_by"] == ident["name"]
+    sp = client.get("/api/spaces")[1]["spaces"][0]
+    assert sp["last_activity_by"] == ident["name"] and sp["last_activity_board"] == "Week 1"
+    assert {m["name"] for m in sp["members"]} == {"Alice", "Bob"}
+    client.patch(f"/api/boards/{bid}", {"background": "dots"})
+    assert board()["last_activity_by"] == "Alice"

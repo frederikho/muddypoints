@@ -46,8 +46,8 @@ def _ingest(user: dict, board_id: str, blobs: list[tuple[bytes, str]], mode: str
     if mode == "replace":
         if archive:
             result["archive"] = export.archive_if_needed(board_id)
-        result["removed_slides"] = boards.clear_slides(board_id)
-    result["added_slides"] = boards.add_slides(board_id, media.store_rendered(board_id, pages))
+        result["removed_slides"] = boards.clear_slides(board_id, user["name"])
+    result["added_slides"] = boards.add_slides(board_id, media.store_rendered(board_id, pages), user["name"])
     result["board_url"] = boards.board_url(board_id)
     log_event(logger, logging.INFO, "slides ingested", board_id=board_id, mode=mode,
               added=len(result["added_slides"]), removed=result.get("removed_slides", 0))

@@ -1,5 +1,5 @@
 // Dashboard SPA (hash routing): #/ spaces, #/space/<id>, #/account. Login/registration when logged out.
-import { api, session, el, toast, showError, busy, copyText, fmtDate, timeAgo, API_ORIGIN, backgroundPicker, cogMenu, menuItem } from "./api.js";
+import { api, session, el, toast, showError, busy, copyText, fmtDate, timeAgo, API_ORIGIN, backgroundPicker, cogMenu, menuItem, avatar } from "./api.js";
 
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
@@ -135,6 +135,16 @@ function inlineCreate(label, placeholder, onCreate) {
   return { button, form };
 }
 
+const MAX_BOARD_PREVIEWS = 6;
+const MAX_AVATARS = 7;
+
+function activityLine(at, by, where) {
+  return el("div", { class: "small" }, "Last activity ",
+    el("strong", { title: fmtDate(at) }, timeAgo(at)),
+    by ? el("span", {}, " by ", el("strong", {}, by)) : "",
+    where ? el("span", { class: "muted" }, ` · ${where}`) : "");
+}
+
 async function spacesView() {
   const { spaces } = await api("GET", "/api/spaces");
   const create = inlineCreate("New space", "Course name, e.g. “Statistics 101 – WS 26/27”", async (name) => {
@@ -142,17 +152,30 @@ async function spacesView() {
     location.hash = `#/space/${space.space_id}`;
   });
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const card = (s) => {
+    const shownBoards = s.boards.slice(0, MAX_BOARD_PREVIEWS);
+    const moreBoards = s.board_count - shownBoards.length;
+    const shownMembers = s.members.slice(0, MAX_AVATARS);
+    return el("div", { class: "card link space-card", onclick: () => (location.hash = `#/space/${s.space_id}`) },
+      el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" },
+        el("h3", { style: "margin:0" }, s.name), el("span", { class: `badge ${s.role}` }, s.role)),
+      activityLine(s.last_activity_at, s.last_activity_by, s.last_activity_board),
+      el("div", { class: "mini-boards" },
+        shownBoards.length ? shownBoards.map((b) => el("a", { class: "mini-board", href: `board.html?b=${b.board_id}`, title: `Open “${b.name}”`,
+          onclick: (e) => e.stopPropagation() }, el("span", { class: `mini-thumb bg-${b.background}` }), el("span", { class: "mini-name" }, b.name)))
+          : el("span", { class: "muted small" }, "No boards yet"),
+        moreBoards > 0 && el("span", { class: "mini-more" }, `+${moreBoards}`)),
+      el("div", { class: "row", style: "justify-content:space-between" },
+        el("div", { class: "avatar-stack", title: s.members.map((m) => m.name).join(", ") },
+          shownMembers.map((m) => avatar(m.user_id, `${m.name} (${m.role})`, 26)),
+          s.member_count > shownMembers.length && el("span", { class: "avatar more" }, `+${s.member_count - shownMembers.length}`)),
+        el("span", { class: "muted small" }, `${plural(s.board_count, "board")} · ${plural(s.member_count, "member")}`)));
+  };
   main.replaceChildren(
     el("div", { class: "section-title", style: "margin-top:0" }, el("h1", { style: "margin:0" }, "Your spaces"), create.button),
     create.form,
-    el("div", { class: "grid", style: "margin-top:16px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))" },
-      spaces.length ? spaces.map((s) => el("div", { class: "card link space-card", onclick: () => (location.hash = `#/space/${s.space_id}`) },
-        el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" },
-          el("h3", { style: "margin:0" }, s.name), el("span", { class: `badge ${s.role}` }, s.role)),
-        el("div", { class: "muted small" }, `${plural(s.board_count, "board")} · ${plural(s.member_count, "member")}`),
-        el("div", { class: "small" }, "Last activity ",
-          el("strong", { title: fmtDate(s.last_activity_at) }, timeAgo(s.last_activity_at)),
-          s.last_activity_board ? el("span", { class: "muted" }, ` · ${s.last_activity_board}`) : "")))
+    el("div", { class: "grid", style: "margin-top:16px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))" },
+      spaces.length ? spaces.map(card)
         : el("p", { class: "muted" }, "No spaces yet. A space usually is one course; inside it you create one board per class. Use “+ New space” above.")));
 }
 
@@ -203,7 +226,8 @@ async function spaceView(spaceId) {
       }),
     ], "Board settings");
     return el("div", { class: "card board-card" }, thumb, menu, el("div", { class: "body" },
-      el("div", { class: "row muted small" }, el("span", { title: fmtDate(b.last_activity_at) }, "Last activity ", timeAgo(b.last_activity_at)),
+      el("div", { class: "row muted small" }, el("span", { title: fmtDate(b.last_activity_at) }, "Last activity ", timeAgo(b.last_activity_at),
+        b.last_activity_by ? ` by ${b.last_activity_by}` : ""),
         b.locked && el("span", { class: "badge locked" }, "comments closed"))));
   });
 
@@ -220,7 +244,8 @@ async function spaceView(spaceId) {
     });
   });
   const memberRows = members.members.map((m) => el("tr", {},
-    el("td", {}, el("strong", {}, m.name), el("div", { class: "muted small" }, m.email)),
+    el("td", {}, el("div", { class: "row", style: "flex-wrap:nowrap" }, avatar(m.user_id, m.name, 32),
+      el("div", {}, el("strong", {}, m.name), el("div", { class: "muted small" }, m.email)))),
     el("td", {}, isOwner && m.user_id !== me.user_id
       ? (() => {
         const sel = el("select", { style: "width:auto", onchange: async () => {

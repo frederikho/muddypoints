@@ -62,20 +62,39 @@ def create_space(user: dict, name) -> dict:
     return public_space(space, "owner")
 
 
+MAX_PREVIEW_BOARDS = 8
+
+
 def list_spaces(user: dict) -> list[dict]:
-    """The user's spaces with role, counts and most recent activity (newest activity first)."""
+    """The user's spaces with role, board previews, members and most recent activity (newest first)."""
     memberships = db.query_gsi1(f"USER#{user['user_id']}", "SPACE#")
     roles = {m["space_id"]: m["role"] for m in memberships}
+    spaces = db.batch_get([(f"SPACE#{sid}", "META") for sid in roles])
+    members = {sid: db.query(f"SPACE#{sid}", "MEMBER#") for sid in roles}
+    profiles = {u["user_id"]: u for u in db.batch_get(
+        [(f"USER#{m['user_id']}", "PROFILE") for ms in members.values() for m in ms])}
     out = []
-    for space in db.batch_get([(f"SPACE#{sid}", "META") for sid in roles]):
+    for space in spaces:
         sid = space["space_id"]
-        boards = db.query_gsi1(f"SPACE#{sid}", "BOARD#")
-        activity = [(max(filter(None, (b.get("updated_at"), b.get("last_activity_at"))), default=""), b["name"])
-                    for b in boards]
-        latest = max(activity, default=(None, None))
-        out.append({**public_space(space, roles[sid]), "board_count": len(boards),
-                    "member_count": len(db.query(f"SPACE#{sid}", "MEMBER#")),
-                    "last_activity_at": latest[0] or space.get("created_at"), "last_activity_board": latest[1]})
+        boards = []
+        for b in db.query_gsi1(f"SPACE#{sid}", "BOARD#"):
+            at = max(filter(None, (b.get("updated_at"), b.get("last_activity_at"))), default="")
+            boards.append({"board_id": b["board_id"], "name": b["name"], "background": b.get("background") or "plain",
+                           "last_activity_at": at, "last_activity_by": b.get("last_activity_by")})
+        boards.sort(key=lambda b: b["last_activity_at"], reverse=True)
+        latest = boards[0] if boards else {}
+        out.append({
+            **public_space(space, roles[sid]),
+            "board_count": len(boards),
+            "boards": boards[:MAX_PREVIEW_BOARDS],
+            "member_count": len(members[sid]),
+            "members": sorted(({"user_id": m["user_id"], "role": m["role"],
+                                "name": profiles.get(m["user_id"], {}).get("name", "?")} for m in members[sid]),
+                              key=lambda m: (-RANK[m["role"]], m["name"].lower())),
+            "last_activity_at": latest.get("last_activity_at") or space.get("created_at"),
+            "last_activity_board": latest.get("name"),
+            "last_activity_by": latest.get("last_activity_by"),
+        })
     return sorted(out, key=lambda s: s["last_activity_at"] or "", reverse=True)
 
 

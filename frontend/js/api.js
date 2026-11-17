@@ -75,6 +75,40 @@ export function backgroundPicker(current, onPick) {
   return row;
 }
 
+// --- abstract avatars: deterministic per user id, 2-3 colours of one palette, simple shapes, no faces ---
+const AVATAR_PALETTES = [
+  ["#3b82f6", "#bfdbfe", "#1e3a8a"], // blue
+  ["#14b8a6", "#99f6e4", "#115e59"], // turquoise
+  ["#f97316", "#fed7aa", "#9a3412"], // orange
+  ["#8b5cf6", "#ddd6fe", "#4c1d95"], // purple
+  ["#ec4899", "#fbcfe8", "#9d174d"], // pink
+  ["#22c55e", "#bbf7d0", "#166534"], // green
+  ["#eab308", "#fef08a", "#854d0e"], // yellow
+  ["#64748b", "#cbd5e1", "#1e293b"], // slate
+];
+function hashString(str) {
+  let h = 2166136261;
+  for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+export function avatar(seed, name = "", size = 28) {
+  const pick = (salt, n) => hashString(`${salt}:${seed}`) % n; // independent "random" choices per property
+  const [a, b, c] = AVATAR_PALETTES[pick("palette", AVATAR_PALETTES.length)];
+  const n = (salt, lo, hi) => lo + pick(salt, hi - lo + 1);
+  const shapes = [
+    `<circle cx="${n("x", 8, 32)}" cy="${n("y", 10, 30)}" r="${n("r", 13, 21)}" fill="${b}"/>`,
+    `<polygon points="0,40 40,0 40,40" fill="${b}"/><circle cx="${n("x", 8, 16)}" cy="${n("y", 8, 16)}" r="6" fill="${c}"/>`,
+    `<rect x="-10" y="${n("y", 10, 18)}" width="60" height="9" fill="${b}"/><rect x="-10" y="${n("y2", 25, 31)}" width="60" height="5" fill="${c}"/>`,
+    `<circle cx="0" cy="40" r="${n("r", 22, 30)}" fill="${b}"/><circle cx="40" cy="0" r="${n("r2", 11, 17)}" fill="${c}"/>`,
+    `<circle cx="${n("x", 12, 18)}" cy="22" r="12" fill="${b}"/><circle cx="${n("x2", 24, 30)}" cy="${n("y", 14, 24)}" r="9" fill="${c}" fill-opacity=".85"/>`,
+    `<path d="M0 ${n("y", 18, 26)} Q20 ${n("q", 4, 14)} 40 ${n("y2", 18, 26)} V40 H0Z" fill="${b}"/><circle cx="${n("x", 10, 30)}" cy="32" r="4" fill="${c}"/>`,
+  ][pick("shape", 6)];
+  const span = el("span", { class: "avatar", title: name, style: `width:${size}px;height:${size}px` });
+  span.innerHTML = `<svg viewBox="0 0 40 40" width="${size}" height="${size}" aria-hidden="true"><rect width="40" height="40" fill="${a}"/>`
+    + `<g transform="rotate(${pick("rot", 4) * 90} 20 20)">${shapes}</g></svg>`; // only computed numbers/colours, no user content
+  return span;
+}
+
 // --- ⚙ popover menu: build(close) returns the menu's children; closes on outside click / Escape ---
 let openMenu = null;
 function closeMenu() {

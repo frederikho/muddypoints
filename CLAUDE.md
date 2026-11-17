@@ -11,7 +11,7 @@ Muddy Points: lecture feedback boards, named after the "muddiest point" classroo
   - `board.html` + `js/board.js`: public board (slides, comments, likes, staff settings side panel behind ⚙, 20 s auto-refresh)
   - `reset.html`: password reset target (`?token=`)
   - `img/`: logo and favicons, generated from the source artwork by `scripts/make_logo.py assets/logo-source.jpg` (crops, removes the white background; needs Pillow + numpy locally, not at runtime)
-  - `js/api.js`: `cogMenu()`/`menuItem()` (⚙ popover menus), `backgroundPicker()`, fetch wrapper, session in localStorage (`muddypoints.session`), `el()` DOM helper, toasts, and **frontend error reporting** to `/api/client-log`
+  - `js/api.js`: `cogMenu()`/`menuItem()` (⚙ popover menus), `backgroundPicker()`, `avatar(userId)` (deterministic abstract SVG avatars), fetch wrapper, session in localStorage (`muddypoints.session`), `el()` DOM helper, toasts, and **frontend error reporting** to `/api/client-log`
   - Anonymous identity: localStorage `muddypoints.identity` `{anon_id, name, token, expires_at}`, replaced after 7 days
 - `backend/src/muddypoints/`: one Lambda (`muddypoints.handler.lambda_handler`) behind a **Lambda Function URL** (no API Gateway, so there is no 30 s limit; timeout is 300 s)
   - `handler.py`: entry point; routes `/mcp*` to `mcp.py` and everything else to `routes.py`; request logging and error handling

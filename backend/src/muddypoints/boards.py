@@ -41,12 +41,20 @@ def public_board(board: dict) -> dict:
             "locked": bool(board.get("locked")), "created_at": board.get("created_at"),
             "updated_at": board.get("updated_at"), "url": board_url(board["board_id"]),
             "background": board.get("background") if board.get("background") in BACKGROUNDS else "plain",
-            "last_activity_at": last_activity(board)}
+            "last_activity_at": last_activity(board), "last_activity_by": board.get("last_activity_by")}
 
 
 def last_activity(board: dict) -> str | None:
-    """Latest of: board/slide changes (updated_at) and the newest comment (last_activity_at)."""
+    """Latest of: board/slide changes (updated_at) and any activity incl. comments (last_activity_at)."""
     return max(filter(None, (board.get("updated_at"), board.get("last_activity_at"))), default=None)
+
+
+def touch(board_id: str, who: str | None) -> None:
+    """Record that something happened on the board, and who did it (user name or anonymous name)."""
+    fields = {"last_activity_at": now_iso()}
+    if who:
+        fields["last_activity_by"] = who
+    db.update(f"BOARD#{board_id}", "META", fields)
 
 
 def _check_background(background) -> str:
@@ -62,6 +70,7 @@ def create_board(user: dict, space_id: str, name, background="plain") -> dict:
     now = now_iso()
     board = {"PK": f"BOARD#{board_id}", "SK": "META", "board_id": board_id, "space_id": space_id,
              "name": clean_name(name), "locked": False, "background": background, "created_at": now, "updated_at": now,
+             "last_activity_at": now, "last_activity_by": user["name"],
              "created_by": user["user_id"], "GSI1PK": f"SPACE#{space_id}", "GSI1SK": f"BOARD#{board_id}"}
     db.put(board)
     log_event(logger, logging.INFO, "board created", board_id=board_id, space_id=space_id)
@@ -76,7 +85,7 @@ def list_boards(user: dict, space_id: str) -> list[dict]:
 
 def update_board(user: dict, board_id: str, name=None, locked=None, background=None) -> dict:
     require_board(user, board_id, "editor")
-    fields = {"updated_at": now_iso()}
+    fields = {"updated_at": now_iso(), "last_activity_at": now_iso(), "last_activity_by": user["name"]}
     if name is not None:
         fields["name"] = clean_name(name)
     if locked is not None:
@@ -158,7 +167,7 @@ def add_comment(board_id: str, slide_id, text, viewer: Viewer) -> dict:
             "slide_id": slide_id, "text": text, "author_name": viewer.name, "author_key": viewer.key,
             "is_staff": is_staff, "likes": 0, "created_at": now_iso()}
     db.put(item)
-    db.update(f"BOARD#{board_id}", "META", {"last_activity_at": item["created_at"]})
+    db.update(f"BOARD#{board_id}", "META", {"last_activity_at": item["created_at"], "last_activity_by": viewer.name})
     log_event(logger, logging.INFO, "comment added", board_id=board_id, slide_id=slide_id, comment_id=comment_id)
     return {"comment_id": comment_id, "slide_id": slide_id, "text": text, "author_name": viewer.name,
             "is_staff": is_staff, "created_at": item["created_at"], "likes": 0, "liked": False, "mine": True}
@@ -221,7 +230,7 @@ def toggle_like(board_id: str, viewer: Viewer, slide_id=None, comment_id=None) -
 
 # --- slides ---------------------------------------------------------------------------------
 
-def add_slides(board_id: str, rendered: list[dict]) -> list[dict]:
+def add_slides(board_id: str, rendered: list[dict], who: str | None = None) -> list[dict]:
     """Persist already-uploaded slide images (output of media.process_upload) at the end of the board."""
     existing = db.query(f"BOARD#{board_id}", "SLIDE#")
     pos = max((s["position"] for s in existing), default=-1)
@@ -234,6 +243,7 @@ def add_slides(board_id: str, rendered: list[dict]) -> list[dict]:
         db.put(item)
         created.append({k: item[k] for k in ("slide_id", "position", "width", "height", "source")})
     db.update(f"BOARD#{board_id}", "META", {"updated_at": now_iso()})
+    touch(board_id, who)
     return created
 
 
@@ -244,6 +254,7 @@ def reorder_slides(user: dict, board_id: str, slide_ids) -> list[str]:
         raise ApiError(400, "invalid_input", "'slide_ids' must list every slide of the board exactly once")
     for pos, sid in enumerate(slide_ids):
         db.update(f"BOARD#{board_id}", f"SLIDE#{sid}", {"position": pos})
+    touch(board_id, user["name"])
     log_event(logger, logging.INFO, "slides reordered", board_id=board_id)
     return slide_ids
 
@@ -263,10 +274,11 @@ def delete_slide(user: dict, board_id: str, slide_id: str) -> None:
     if not db.get(f"BOARD#{board_id}", f"SLIDE#{slide_id}"):
         raise not_found("Slide")
     _remove_slides(board_id, {slide_id})
+    touch(board_id, user["name"])
     log_event(logger, logging.INFO, "slide deleted", board_id=board_id, slide_id=slide_id)
 
 
-def clear_slides(board_id: str) -> int:
+def clear_slides(board_id: str, who: str | None = None) -> int:
     """Remove all slides, comments and likes (no permission check — callers check owner)."""
     ids = {s["slide_id"] for s in db.query(f"BOARD#{board_id}", "SLIDE#")}
     if ids:
@@ -275,4 +287,5 @@ def clear_slides(board_id: str) -> int:
     leftovers = db.query(f"BOARD#{board_id}", "COMMENT#") + db.query(f"BOARD#{board_id}", "LIKE#")
     db.batch_delete([(i["PK"], i["SK"]) for i in leftovers])
     db.update(f"BOARD#{board_id}", "META", {"updated_at": now_iso()})
+    touch(board_id, who)
     return len(ids)

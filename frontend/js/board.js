@@ -130,7 +130,6 @@ function renderAll() {
   applyBackground(board.background);
   document.getElementById("who").replaceChildren(viewer ? el("span", { class: "identity-chip", title: viewer.is_user ? "Logged in" : "Your anonymous name for this week (assigned randomly)" },
     viewer.is_user ? "👤 " : "🎭 ", viewer.name) : "");
-  document.getElementById("staff-link").classList.toggle("hidden", !my_role);
   renderPanel();
   slideNodes.clear();
   const host = document.getElementById("slides");
