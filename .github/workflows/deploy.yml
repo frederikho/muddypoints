@@ -59,15 +59,21 @@ jobs:
           echo "url=${url%/}" >> "$GITHUB_OUTPUT"
       - run: sam build
       - name: sam deploy
+        env:
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          FRONTEND_URL: ${{ steps.frontend.outputs.url }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+          ALLOWED_EMAIL_DOMAINS: ${{ vars.ALLOWED_EMAIL_DOMAINS }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
         run: |
+          # SAM rejects empty values ("Key="), so only pass parameters that are set.
+          params=("SecretKey=$SECRET_KEY" "FrontendUrl=$FRONTEND_URL" "LogLevel=$LOG_LEVEL")
+          [ -n "$MAIL_FROM" ] && params+=("MailFrom=$MAIL_FROM")
+          [ -n "$BREVO_API_KEY" ] && params+=("BrevoApiKey=$BREVO_API_KEY")
+          [ -n "$ALLOWED_EMAIL_DOMAINS" ] && params+=("AllowedEmailDomains=$ALLOWED_EMAIL_DOMAINS")
           sam deploy --stack-name "$STACK_NAME" --no-confirm-changeset --no-fail-on-empty-changeset \
-            --parameter-overrides \
-              "SecretKey=${{ secrets.SECRET_KEY }}" \
-              "FrontendUrl=${{ steps.frontend.outputs.url }}" \
-              "MailFrom=${{ vars.MAIL_FROM }}" \
-              "BrevoApiKey=${{ secrets.BREVO_API_KEY }}" \
-              "AllowedEmailDomains=${{ vars.ALLOWED_EMAIL_DOMAINS }}" \
-              "LogLevel=${{ vars.LOG_LEVEL || 'INFO' }}"
+            --parameter-overrides "${params[@]}"
       - name: Read stack outputs
         id: outputs
         run: |
