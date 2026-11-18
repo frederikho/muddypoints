@@ -263,10 +263,16 @@ function putOnBoardDialog(spaceId, file, boards, done) {
   document.body.append(overlay);
 }
 
+const FILES_PER_PAGE = 20;
+const fileListState = {}; // per workspace: { q, filter, sort, page } — survives automatic refreshes
+const naturalCompare = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
+
 function filesSection(spaceId, files, boards, refresh) {
+  const st = fileListState[spaceId] ||= { q: "", filter: "all", sort: "newest", page: 0 };
   const usedOn = (f) => [...new Set((f.published_to || []).map((u) => u.board))];
-  const rows = files.map((f) => el("tr", {},
-    el("td", {}, el("strong", {}, f.title || f.name), el("div", { class: "muted small" }, `${f.pages} pages`)),
+  const label = (f) => f.title || f.name;
+  const row = (f) => el("tr", {},
+    el("td", {}, el("strong", {}, label(f)), el("div", { class: "muted small" }, `${f.pages} page${f.pages === 1 ? "" : "s"}`)),
     el("td", { class: "muted small" }, el("span", { title: fmtDate(f.uploaded_at) }, timeAgo(f.uploaded_at)),
       f.uploaded_by ? el("div", {}, f.uploaded_by) : ""),
     el("td", { class: "small" }, usedOn(f).length ? usedOn(f).join(", ") : el("span", { class: "muted" }, "not used yet")),
@@ -280,15 +286,56 @@ function filesSection(spaceId, files, boards, refresh) {
       }),
       menuItem("Delete…", async () => {
         close();
-        if (!confirm(`Delete “${f.title || f.name}” from the workspace files? Boards that show it are not affected.`)) return;
+        if (!confirm(`Delete “${label(f)}” from the workspace files? Boards that show it are not affected.`)) return;
         await api("DELETE", `/api/spaces/${spaceId}/files/${f.file_id}`).catch(showError); refresh();
       }, "danger"),
-    ], "File actions"))));
+    ], "File actions")));
+
+  const listBox = el("div");
+  function renderList() {
+    const words = st.q.toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = files.filter((f) => {
+      const hay = `${label(f)} ${f.name} ${usedOn(f).join(" ")}`.toLowerCase();
+      if (!words.every((w) => hay.includes(w))) return false;
+      if (st.filter === "used") return usedOn(f).length > 0;
+      if (st.filter === "unused") return usedOn(f).length === 0;
+      return true;
+    });
+    if (st.sort === "name") shown.sort((x, y) => naturalCompare(label(x), label(y)));
+    else if (st.sort === "used") shown.sort((x, y) => (y.published_to || []).length - (x.published_to || []).length);
+    else shown.sort((x, y) => (y.uploaded_at || "").localeCompare(x.uploaded_at || ""));
+    const pages = Math.max(1, Math.ceil(shown.length / FILES_PER_PAGE));
+    st.page = Math.min(st.page, pages - 1);
+    const start = st.page * FILES_PER_PAGE;
+    const pageItems = shown.slice(start, start + FILES_PER_PAGE);
+    const go = (delta) => { st.page += delta; renderList(); };
+    listBox.replaceChildren(
+      pageItems.length ? el("div", { class: "card", style: "padding:4px 12px" }, el("table", {}, el("tbody", {}, pageItems.map(row))))
+        : el("p", { class: "muted" }, "No files match."),
+      el("div", { class: "row pager" },
+        el("span", { class: "muted small" }, shown.length ? `${start + 1}–${start + pageItems.length} of ${shown.length}` +
+          (shown.length !== files.length ? ` (filtered from ${files.length})` : "") : ""),
+        pages > 1 && el("span", { class: "spacer", style: "flex:1" }),
+        pages > 1 && el("button", { class: "sm", type: "button", disabled: st.page === 0, onclick: () => go(-1) }, "‹ Previous"),
+        pages > 1 && el("span", { class: "small" }, `Page ${st.page + 1} of ${pages}`),
+        pages > 1 && el("button", { class: "sm", type: "button", disabled: st.page >= pages - 1, onclick: () => go(1) }, "Next ›")));
+  }
+
+  const search = el("input", { type: "search", placeholder: "Search files…", value: st.q, class: "files-search",
+    oninput: (e) => { st.q = e.target.value; st.page = 0; renderList(); } });
+  const opt = (value, text, current) => el("option", { value, selected: value === current }, text);
+  const filter = el("select", { style: "width:auto", onchange: (e) => { st.filter = e.target.value; st.page = 0; renderList(); } },
+    opt("all", "All files", st.filter), opt("used", "Used on a board", st.filter), opt("unused", "Not used yet", st.filter));
+  const sort = el("select", { style: "width:auto", onchange: (e) => { st.sort = e.target.value; st.page = 0; renderList(); } },
+    opt("newest", "Newest first", st.sort), opt("name", "Name A–Z", st.sort), opt("used", "Most used", st.sort));
+  if (files.length) renderList();
+
   const uploadBtn = el("button", { class: "ghost sm", type: "button", onclick: () => openUploadLink(spaceId) }, "+ Upload files");
   return el("section", { id: "files-section", "data-space": spaceId },
     el("div", { class: "section-title" }, el("h2", { style: "margin:0" }, "Files"), uploadBtn),
     el("p", { class: "muted small", style: "margin-top:-6px" }, "Lecture PDFs and syllabi shared by everyone in this workspace. Kept permanently, so you can reuse them next semester."),
-    files.length ? el("div", { class: "card", style: "padding:4px 12px" }, el("table", {}, el("tbody", {}, rows)))
+    files.length ? el("div", { class: "row files-toolbar" }, search, filter, sort) : "",
+    files.length ? listBox
       : el("p", { class: "muted" }, "No files yet. PDFs you put on a board are added here automatically, or use “+ Upload files”."));
 }
 
@@ -296,6 +343,7 @@ function filesSection(spaceId, files, boards, refresh) {
 async function reloadFiles() {
   const box = document.getElementById("files-section");
   if (!box || document.querySelector("#files-section .popover:not(.hidden), .dialog-backdrop")) return;
+  if (box.contains(document.activeElement) && document.activeElement.matches("input, select")) return; // user is typing
   const spaceId = box.dataset.space;
   try {
     const [{ boards }, { files }] = await Promise.all([api("GET", `/api/spaces/${spaceId}`), api("GET", `/api/spaces/${spaceId}/files`)]);

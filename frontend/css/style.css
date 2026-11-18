@@ -44,7 +44,7 @@ body > main { flex: 1 0 auto; width: 100%; box-sizing: border-box; }
 
 /* forms */
 label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 4px; }
-input[type=text], input[type=email], input[type=password], textarea, select {
+input[type=text], input[type=email], input[type=password], input[type=search], input[type=datetime-local], textarea, select {
   width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
   color: var(--text); font: inherit; }
 textarea { resize: vertical; min-height: 64px; }
@@ -278,3 +278,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: 
 .session-time { width: auto; padding: 4px 8px; font-size: .85rem; }
 .add-session { padding-top: 6px; border-top: 1px dashed var(--border); }
 label.check { display: flex; gap: 8px; align-items: center; font-weight: 500; font-size: .9rem; }
+
+/* files list toolbar & pager */
+.files-toolbar { margin: 4px 0 10px; }
+.files-toolbar .files-search { flex: 1; min-width: 180px; width: auto; }
+.pager { margin-top: 8px; }
