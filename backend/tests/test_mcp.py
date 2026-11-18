@@ -87,6 +87,7 @@ def test_tools_end_to_end(mcp, owner, monkeypatch):
     assert not err and upl["uploads"][0]["upload_url"].startswith("https://")
     assert upl["upload_host"] == "muddypoints-test-media.s3.eu-central-1.amazonaws.com"
     assert upl["upload_host"] in upl["uploads"][0]["upload_url"]
+    assert upl["upload_page_url"].endswith(f"board.html?b={board['board_id']}#upload")
 
 
 def test_tool_errors_are_reported_not_raised(mcp, owner):

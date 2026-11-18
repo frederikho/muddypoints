@@ -26,8 +26,9 @@ replace_board_material with the new lecture PDF (this archives a PDF of the old 
 Owners can delete things; editors can do everything else. IDs come from list_* tools.
 New material: prefer import_slides_from_url / replace_board_material when the user gives a link (Google Drive and
 Dropbox share links work). For a file attached in the chat use prepare_slide_upload, PUT the bytes from your sandbox,
-then confirm_slide_upload. If the PUT is blocked by your network policy, tell the user to allow the domain given in
-`upload_host` (Claude settings -> code execution / network allowed domains) or to send a share link instead."""
+then confirm_slide_upload. If the PUT is blocked by your network policy, give the user the `upload_page_url` from
+prepare_slide_upload (opens the board with the upload panel; they drop the file there). Mention that adding
+`upload_host` to the allowed domains in their Claude settings makes chat attachments work directly next time."""
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -196,10 +197,15 @@ def _replace(user, a):
           "required": ["filename", "content_type"]}}}, ("board_id", "files"))
 def _prepare(user, a):
     host = media.upload_host()
+    page = boards.board_url(a["board_id"]) + "#upload"
     return {"uploads": uploads.prepare(user, a["board_id"], a.get("files")), "upload_host": host,
-            "if_upload_blocked": f"If your sandbox's network policy blocks {host}, ask the user to add this domain to "
-                                 "the allowed domains for code execution in their Claude settings, or to send a public "
-                                 "share link of the file (then use import_slides_from_url / replace_board_material)."}
+            "upload_page_url": page,
+            "if_upload_blocked": f"If your sandbox's network policy blocks {host}: give the user this link to upload the "
+                                 f"file themselves in one step: {page} (if they want to replace the slides, they choose "
+                                 "'Replace all slides' there). Also mention that adding the domain "
+                                 f"{host} to the allowed domains for code execution in their Claude settings makes chat "
+                                 "attachments work directly next time. A public share link of the file also works "
+                                 "(import_slides_from_url / replace_board_material)."}
 
 
 @tool("confirm_slide_upload", "Step 2 of a direct upload: convert uploaded files into slides (in the given order).",

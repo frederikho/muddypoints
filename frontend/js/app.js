@@ -58,6 +58,8 @@ function authView(tab = "login") {
             : { name: v("name"), email: v("email"), password: v("password") };
           const res = await api("POST", `/api/auth/${name}`, body);
           session.set(res.token, res.user);
+          const next = new URLSearchParams(location.search).get("next");
+          if (next && /^board\.html\?b=[a-z0-9]+(#upload)?$/.test(next)) { location.href = next; return; }
           route();
         }
       } catch (err) {

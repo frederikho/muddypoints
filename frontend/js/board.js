@@ -225,6 +225,22 @@ function renderPanel() {
   if (wasOpen) loadArchives();
 }
 
+// Links like board.html?b=<id>#upload (e.g. handed out by Claude) open the upload panel directly.
+function openUploadFromLink() {
+  if (!state.my_role) {
+    if (!session.token) {
+      location.href = `./?next=${encodeURIComponent(`board.html${location.search}#upload`)}`;
+    } else {
+      toast("Only members of this board's space can upload.", "error");
+    }
+    return;
+  }
+  setPanel(true);
+  const btn = panel.querySelector("button.primary");
+  btn?.focus();
+  btn?.classList.add("pulse");
+}
+
 async function upload(files, mode, status) {
   if (!files.length) return;
   if (mode === "replace" && !confirm("Replace all current slides? Their comments are saved to the archive as PDF first.")) return;
@@ -281,7 +297,8 @@ async function init() {
     const identity = await ensureIdentity();
     anonToken = identity?.token || null;
     await refresh(true);
-    if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
+    if (location.hash === "#upload") openUploadFromLink();
+    else if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
   } catch (e) {
     document.getElementById("board-title").textContent = e.status === 404 ? "Board not found" : "Could not load board";
     document.getElementById("slides").replaceChildren(el("div", { class: "card empty" },
