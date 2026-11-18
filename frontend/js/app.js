@@ -61,6 +61,8 @@ function authView(tab = "login") {
           session.set(res.token, res.user);
           const next = new URLSearchParams(location.search).get("next");
           if (next && /^board\.html\?b=[a-z0-9]+(#upload(-replace)?)?$/.test(next)) { location.href = next; return; }
+          // a brand-new account owns nothing and has no access to the workspace that was open before: start at the overview
+          if (name === "register") history.replaceState(null, "", location.pathname + location.search + "#/");
           route();
         }
       } catch (err) {
@@ -317,6 +319,7 @@ async function spaceView(spaceId) {
       }),
     ], "Board settings");
     return el("div", { class: "card board-card" }, thumb, menu, el("div", { class: "body" },
+      b.next_switch_at && el("div", { class: "small" }, "⏱ Next material: ", el("strong", {}, fmtDate(b.next_switch_at))),
       el("div", { class: "row muted small" }, el("span", { title: fmtDate(b.last_activity_at) }, "Last activity ", timeAgo(b.last_activity_at),
         b.last_activity_by ? ` by ${b.last_activity_by}` : ""),
         b.locked && el("span", { class: "badge locked" }, "comments closed"))));

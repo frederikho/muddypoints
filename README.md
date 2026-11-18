@@ -18,21 +18,26 @@ template.yaml                  AWS infrastructure (SAM)
 
 | | |
 |---|---|
-| **Space** | Usually one course. Has members. |
-| **Owner** | Can do everything, including deleting things and managing roles. |
-| **Editor** | Invited member. Can do everything except delete (spaces, boards, slides, other people's comments) and change roles. |
-| **Board** | One public link per class, e.g. `…/board.html?b=k3x9ab2c7d`. Anyone with the link can view it. |
+| **Workspace** | Your teaching team (e.g. a chair). Has members and shared **files**. |
+| **Board** | One course, with **one public link for the whole semester**, e.g. `…/board.html?b=k3x9ab2c7d`. Its content changes from session to session. Anyone with the link can view it. |
+| **Session** | One piece of material on a board (usually one lecture PDF), with the time it goes live. |
+| **Files** | Lecture PDFs and syllabi of a workspace. Kept permanently for reuse in later semesters. Each distinct PDF is stored only once. |
+| **Owner** | Can do everything. |
+| **Editor** | Can do everything except delete the workspace and manage owners. |
 | **Students** | Don't register. On first visit each student gets a random funny name (e.g. *Lazy Lizard*) that stays the same in that browser for 7 days. They can't change it. |
 
-## Weekly workflow
+## How a semester works
 
-1. Open the board, click **⚙** (top right) → **Export PDF with comments**, and upload the PDF to OLAT.
-2. In the same panel, **Upload** the new material with *Replace all slides*. A PDF of the old state is archived automatically (listed under **Archive** in the panel).
-3. The link stays the same, so students keep using their bookmark.
+1. **Get the files in.** On the workspace page click **+ Upload files** (or ask Claude for an upload link). Drag in all lecture PDFs and the syllabus. Files that are already there are recognised and not uploaded twice.
+2. **Plan the sessions.** On the board click **⚙ → Schedule** and add one session per lecture (file + time). Or ask Claude: *"Plan the ERE board from the syllabus"*. Claude reads the syllabus and proposes a schedule, and saves it once you confirm. By convention new material goes live right **after** the previous lecture ends.
+3. **Lean back.** At each session time the board archives the current slides and comments as a PDF, shows the next lecture with fresh comments, and emails all owners and editors. Each person can switch these emails off per board (⚙ → Notifications). Before the first session students see *"Coming soon"*.
+4. **For OLAT:** ⚙ → **Archive** has the PDF (slides plus comments) of every finished session. ⚙ → **Export PDF with comments** gives you the current one at any time.
 
-Or ask Claude: *"Export the comments of board 'Lecture 3' and replace it with https://…/lecture4.pdf"*.
+Doing it by hand instead: ⚙ → **Upload** with *Replace all slides*, or **From workspace files**, or **History → Use again** to reuse earlier material.
 
-Also in the ⚙ panel: **Close comments** (students can still read but no longer comment or like), background texture, rename. Single slides are moved/deleted with the ↑ ↓ 🗑 controls under each slide. On the space screen, each board card has its own ⚙ menu.
+Also in the ⚙ panel: **Close comments** (students can still read but no longer comment or like), background texture, rename. Single slides are moved/deleted with the ↑ ↓ 🗑 controls under each slide. On the workspace page each board card has its own ⚙ menu.
+
+**Feedback:** the *💡 Feedback or feature idea* link at the bottom of every page sends a message to the maintainer.
 
 ---
 
@@ -120,7 +125,13 @@ Each admin does this once, for their own account. Afterwards you can say things 
 1. Start a new chat. In the **+** / tools menu under *Connectors*, make sure **Muddy Points** is switched on.
 2. Ask: *"Which spaces and boards do I have in Muddy Points?"* The first time, Claude may ask permission to use the tools; allow it.
 
-**d) New slides via Claude**
+**d) Things to ask Claude**
+- *"Give me an upload link for my lecture PDFs"*. You drag them in, then: *"Read them and put the right one on the ERE board"*.
+- *"Plan the ERE board for the semester from the syllabus"*. Claude proposes the dates and times, you confirm, and it saves the schedule.
+- *"What did we show in week 10 last year? Put it up again."* (board history)
+- *"Export this week's questions for OLAT."*
+
+**New slides via Claude**
 - **PDF on your computer or attached in the chat:** say e.g. *"Replace the ERE slides with the new lecture"*. Claude replies with an **upload link**. Click it, log in if asked, and drop the PDF into the panel that opens. For a replacement, *Replace all slides* is already selected, and the old slides and comments are archived as PDF first.
 - **PDF already online:** give Claude a Google Drive / Dropbox / public link (*"Replace ERE with this: <link>"*). Claude loads it directly, with no clicking needed.
 

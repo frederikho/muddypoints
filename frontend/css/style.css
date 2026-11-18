@@ -264,3 +264,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: 
 .history-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .history-row:last-child { border-bottom: none; }
 @media (max-width: 560px) { .file-row { grid-template-columns: 1fr auto; } .file-row progress { display: none; } }
+
+/* --- schedule --- */
+.coming-soon { padding: 56px 24px; }
+.coming-soon h2 { font-size: 1.6rem; margin: 6px 0 10px; color: var(--text); }
+.coming-soon-label { display: inline-block; text-transform: uppercase; letter-spacing: .1em; font-size: .75rem; font-weight: 800;
+  color: var(--accent); background: var(--accent-soft); padding: 4px 12px; border-radius: 999px; }
+.session-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.session-row:last-of-type { border-bottom: none; }
+.session-time { width: auto; padding: 4px 8px; font-size: .85rem; }
+.add-session { padding-top: 6px; border-top: 1px dashed var(--border); }
+label.check { display: flex; gap: 8px; align-items: center; font-weight: 500; font-size: .9rem; }

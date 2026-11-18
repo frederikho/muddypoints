@@ -134,7 +134,8 @@ function renderAll() {
   slideNodes.clear();
   const host = document.getElementById("slides");
   host.replaceChildren(...(slides.length ? slides.map((s, i) => slideNode(s, i, slides.length))
-    : [el("div", { class: "card empty" }, my_role ? "No slides yet — open ⚙ (top right) to upload a PDF or images." : "No material has been posted yet. Check back later!")]));
+    : [state.upcoming ? comingSoon(state.upcoming)
+      : el("div", { class: "card empty" }, my_role ? "No slides yet — open ⚙ (top right) to upload a PDF or images." : "No material has been posted yet. Check back later!")]));
 }
 
 function applyBackground(bg) {
@@ -161,8 +162,73 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && panel.cl
 
 const section = (title, ...children) => el("section", { class: "panel-section" }, el("h3", {}, title), ...children);
 
+function comingSoon(up) {
+  const when = new Date(up.starts_at);
+  return el("div", { class: "card empty coming-soon" },
+    el("div", { class: "coming-soon-label" }, "Coming soon"),
+    el("h2", {}, up.title),
+    el("p", {}, "Available from ", el("strong", {}, when.toLocaleString(undefined, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }))),
+    el("p", { class: "muted small" }, "Bookmark this page — the material appears here automatically."));
+}
+
+// datetime-local <-> ISO helpers (inputs are in the viewer's local time)
+const toLocalInput = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+const fromLocalInput = (v) => new Date(v).toISOString();
+const STATUS = { planned: ["planned", "badge"], switching: ["switching…", "badge"], live: ["live now", "badge owner"],
+  done: ["done", "badge"], skipped: ["skipped", "badge"], failed: ["failed", "badge locked"] };
+
+async function loadSchedule() {
+  const box = document.getElementById("schedule-box");
+  if (!box) return;
+  try {
+    const [{ sessions }, { files }] = await Promise.all([api("GET", `/api/boards/${boardId}/schedule`),
+      api("GET", `/api/spaces/${state.board.space_id}/files`)]);
+    const reload = () => loadSchedule();
+    const rows = sessions.map((x) => {
+      const [label, cls] = STATUS[x.status] || [x.status, "badge"];
+      const editable = x.status === "planned";
+      const time = editable
+        ? el("input", { type: "datetime-local", value: toLocalInput(x.starts_at), class: "session-time", onchange: (e) => busy(null, async () => {
+          await api("PATCH", `/api/boards/${boardId}/sessions/${x.session_id}`, { starts_at: fromLocalInput(e.target.value) }); reload(); }) })
+        : el("span", { class: "small" }, new Date(x.starts_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+      return el("div", { class: "session-row" },
+        el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, time, el("span", { class: cls }, label)),
+        el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" },
+          el("span", { class: "small", title: x.name || "" }, x.title),
+          x.status !== "live" && x.status !== "switching" && el("button", { class: "ghost sm danger", type: "button", title: "Remove",
+            onclick: (e) => busy(e.currentTarget, async () => { await api("DELETE", `/api/boards/${boardId}/sessions/${x.session_id}`); reload(); }) }, "✕")),
+        x.error ? el("div", { class: "alert small" }, x.error) : "");
+    });
+    // add a session: default = one week after the last one, else tomorrow 16:00
+    const last = sessions.length ? new Date(sessions[sessions.length - 1].starts_at) : null;
+    const next = last ? new Date(last.getTime() + 7 * 864e5) : (() => { const d = new Date(Date.now() + 864e5); d.setHours(16, 0, 0, 0); return d; })();
+    const pick = el("select", {}, ...files.map((f) => el("option", { value: f.file_id }, `${f.title || f.name}`)));
+    const when = el("input", { type: "datetime-local", value: toLocalInput(next.toISOString()) });
+    const add = el("button", { class: "block", type: "button", onclick: () => busy(add, async () => {
+      await api("POST", `/api/boards/${boardId}/sessions`, { file_id: pick.value, starts_at: fromLocalInput(when.value) }); reload(); await refresh(true);
+    }) }, "+ Add session");
+    box.replaceChildren(
+      el("p", { class: "muted small" }, "At each time the current slides and comments are archived as PDF and the session's file goes live. Times in your local time."),
+      ...(rows.length ? rows : [el("p", { class: "muted small" }, "No sessions planned. Tip: ask Claude to plan the semester from your syllabus.")]),
+      files.length ? el("div", { class: "stack add-session" }, pick, when, add)
+        : el("p", { class: "muted small" }, "Upload lecture PDFs to the workspace files first."));
+  } catch (e) { box.replaceChildren(el("p", { class: "alert" }, e.message)); }
+}
+
+async function loadNotifications() {
+  const box = document.getElementById("notify-box");
+  if (!box) return;
+  try {
+    const { enabled } = await api("GET", `/api/boards/${boardId}/notifications`);
+    const cb = el("input", { type: "checkbox", checked: enabled, onchange: () => busy(null, async () => {
+      await api("PUT", `/api/boards/${boardId}/notifications`, { enabled: cb.checked }); toast(cb.checked ? "Emails on" : "Emails off");
+    }) });
+    box.replaceChildren(el("label", { class: "check" }, cb, " Email me whenever this board's material changes"));
+  } catch (e) { box.replaceChildren(el("p", { class: "alert" }, e.message)); }
+}
+
 function loadPanelData() {
-  loadArchives(); loadFiles(); loadHistory();
+  loadArchives(); loadFiles(); loadHistory(); loadSchedule(); loadNotifications();
 }
 
 const publish = (fileId, mode) => api("POST", `/api/spaces/${state.board.space_id}/files/${fileId}/publish`,
@@ -266,10 +332,12 @@ function renderPanel() {
     section("Comments", lockBtn, exportBtn),
     section("Background", picker),
     section("Board", renameBtn),
+    section("Schedule", el("div", { id: "schedule-box", class: "stack" })),
     section("From workspace files", el("div", { id: "files-box", class: "stack" }),
       el("button", { class: "ghost sm", type: "button", onclick: () => openUploadLink() }, "+ Upload more files (opens upload page)")),
     section("History", el("div", { id: "history-box", class: "stack" })),
     section("Archive", el("div", { id: "archive-list", class: "stack" })),
+    section("Notifications", el("div", { id: "notify-box" })),
     section("Danger zone", clearBtn));
   if (wasOpen) loadPanelData();
 }
@@ -334,6 +402,7 @@ async function refresh(force = false) {
   const next = await load();
   const sameSlides = state && next.slides.map((s) => s.slide_id).join() === state.slides.map((s) => s.slide_id).join();
   const sameMeta = state && next.board.locked === state.board.locked && next.board.name === state.board.name
+    && JSON.stringify(next.upcoming) === JSON.stringify(state.upcoming)
     && next.board.background === state.board.background;
   if (!force && sameSlides && sameMeta) {
     next.slides.forEach((s, i) => {

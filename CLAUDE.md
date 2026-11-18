@@ -33,6 +33,14 @@ Users see **Workspace → Board → (Session) → Slides/Comments**, plus shared
 - Locked boards: non-members can't comment or like; staff still can.
 - A workspace always keeps at least one owner.
 
+## Schedules (`schedule.py`, `notify.py`)
+- A board shows a sequence of **sessions** (`BOARD#<bid>/SESSION#<id>`: workspace file + `starts_at` in UTC, status `planned → switching → live → done` / `skipped` / `failed`). Board META has `timezone` (default `Europe/Berlin`) and `next_switch_at`.
+- `schedule.advance(board_id)` does a switch: archive the current slides and comments (PDF), publish the file (`uploads._ingest` as the user "Schedule"), reopen comments, mark statuses, and email staff. A conditional update (`planned → switching`) makes it run **exactly once**.
+- It is triggered by **EventBridge Scheduler** every 5 minutes (`template.yaml` → `ScheduleV2` event → `handler` with `{"source": "muddypoints.scheduler"}` → `run_due`, using GSI1 `SCHED` items) and on **every board page load** when `next_switch_at` has passed.
+- Empty board plus planned sessions → the view returns `upcoming` → "Coming soon" card.
+- Emails on every content change (manual replace/clear and scheduled switch) go to all workspace members except the actor and except people who opted out per board (`BOARD#<bid>/NOTIFYOFF#<uid>`).
+- Times: the API accepts local `YYYY-MM-DDTHH:MM` (board time zone) or ISO with offset, and returns `starts_at` (UTC) plus `starts_at_local`. Uses `zoneinfo` + the `tzdata` package.
+
 ## Feedback
 `POST /api/feedback` (footer link "💡 Feedback or feature idea" on every page) stores the message in DynamoDB (`PK=FEEDBACK`) and mails it to `FEEDBACK_EMAIL` (GitHub **secret**; never put the address in the repo). Honeypot field `website`, max 5 per IP per hour.
 
@@ -71,6 +79,9 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 | `replace_board_material` | weekly rotation: archive PDF, clear, import new material from URL |
 | `create_upload_link` (hours, note) | **no-login upload page** (`drop.html#<token>`) for a workspace: user drags PDFs in → workspace files. The standard way to receive files from users |
 | `list_files`, `read_file` (from_page, to_page, max_chars), `publish_file` (mode), `delete_file` | workspace files: overview (title, pages, outline, `published_to`), paginated text, put on a board |
+| `get_schedule`, `set_schedule` (replaces planned), `add_session`, `update_session`, `remove_session` | board schedule (sessions with local times); conventions are in the server instructions in `mcp.py` |
+| `set_notifications` | per-board change emails on/off for the current user |
+| `view_file_page` | a PDF page as an image (scanned slides, diagrams) |
 | `get_board_history` | what was put on a board when (file ids) → reuse material from earlier weeks/semesters |
 | `get_upload_link` (replace) | link that opens the board's upload panel (`#upload` / `#upload-replace`); **the way to handle files attached in claude.ai chats** (their sandbox can't reach S3) |
 | `prepare_slide_upload` → PUT → `confirm_slide_upload` | direct upload via presigned S3 URL, only for clients with open network (e.g. Claude Code) |
