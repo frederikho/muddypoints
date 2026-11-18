@@ -129,7 +129,9 @@ Admins can change the app itself (layout, features, texts) by describing the cha
 **One-time setup (per admin)**
 1. You need a GitHub account with **write access** to this repository (the repo owner adds you under *Settings → Collaborators*) and a Claude plan that includes Claude Code.
 2. **Connect GitHub to Claude:** in Claude click your profile icon (bottom left) → **Settings → Connectors**, find **GitHub**, click **Connect**, and confirm with **Authorize** on the GitHub page.
-3. Open **claude.ai/code**. If asked, **install the Claude GitHub App** and give it access to this repository (it lets Claude push branches and open pull requests).
+3. Open **claude.ai/code**. If asked, **install the Claude GitHub App** and give it access to this repository (it lets Claude push branches and open pull requests). Direct link: <https://github.com/apps/claude/installations/select_target>. In an organization, an **org owner** may have to do this. The app needs **write** access to the repository's contents and pull requests.
+
+If Claude reports *"Claude doesn't have GitHub access"* or a push fails with **403**, this step is missing or incomplete. Install the app (link above) or reconnect GitHub under **Settings → Connectors → GitHub**, then tell Claude to try again. Until the push works, the changes exist only inside the temporary session and are lost when it ends.
 
 **Making a change**
 1. On claude.ai/code start a session on this repository and describe what you want, e.g. *"Show the date next to each comment"*.
