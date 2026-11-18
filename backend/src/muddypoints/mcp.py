@@ -78,7 +78,7 @@ def tool(name: str, description: str, properties: dict | None = None, required: 
 S = {"type": "string"}
 SPACE = {"workspace_id": {**S, "description": "Workspace id (from list_workspaces)"}}
 BOARD = {"board_id": {**S, "description": "Board id (from list_boards)"}}
-MODE = {"mode": {"type": "string", "enum": ["append", "replace"], "default": "append",
+MODE = {"mode": {"type": "string", "enum": ["append", "replace"], "default": "replace",
                  "description": "append = add after existing slides; replace = remove all old slides, comments "
                                 "and likes"},
         "archive": {"type": "boolean", "default": True,
@@ -205,7 +205,7 @@ def _delete_comment(user, a):
       "Download a PDF or image from a URL (direct link, or a share link from Google Drive, Dropbox, Seafile, Nextcloud/sciebo) and turn it into "
       "slides (one per PDF page).", {**BOARD, "url": S, **MODE}, ("board_id", "url"))
 def _import_url(user, a):
-    return uploads.import_from_url(user, a["board_id"], a.get("url"), a.get("mode", "append"), a.get("archive", True))
+    return uploads.import_from_url(user, a["board_id"], a.get("url"), a.get("mode", "replace"), a.get("archive", True))
 
 
 @tool("replace_board_material",
@@ -255,7 +255,7 @@ def _prepare(user, a):
 @tool("confirm_slide_upload", "Step 2 of a direct upload: convert uploaded files into slides (in the given order).",
       {**BOARD, "upload_keys": {"type": "array", "items": S}, **MODE}, ("board_id", "upload_keys"))
 def _confirm(user, a):
-    return uploads.confirm(user, a["board_id"], a.get("upload_keys"), a.get("mode", "append"), a.get("archive", True))
+    return uploads.confirm(user, a["board_id"], a.get("upload_keys"), a.get("mode", "replace"), a.get("archive", True))
 
 
 @tool("reorder_slides", "Set the slide order. Pass every slide_id of the board exactly once.",
@@ -311,7 +311,7 @@ def _read_file(user, a):
       "material (archives a PDF of the old slides+comments first). The file stays in the workspace files.",
       {**SPACE, "file_id": S, **BOARD, **MODE}, ("workspace_id", "file_id", "board_id"))
 def _publish_file(user, a):
-    return library.publish(user, a["workspace_id"], a["file_id"], a["board_id"], a.get("mode", "append"),
+    return library.publish(user, a["workspace_id"], a["file_id"], a["board_id"], a.get("mode", "replace"),
                            a.get("archive", True))
 
 

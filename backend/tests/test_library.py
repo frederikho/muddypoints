@@ -61,7 +61,7 @@ def test_drop_link_upload_dedup_and_read(client, owner):
     files = client.get(f"/api/spaces/{sid}/files")[1]["files"]
     assert len(files) == 2
     f1 = next(f for f in files if f["name"] == "L1.pdf")
-    assert f1["pages"] == 3 and f1["title"] == "Lecture 1 – Regression"
+    assert f1["pages"] == 3 and f1["title"] == "L1"  # the file name, not the embedded PDF title
     # stored once, content-addressed
     blobs = [o["Key"] for o in aws.s3().list_objects_v2(Bucket=settings.bucket_name, Prefix="blobs/")["Contents"]]
     assert len([k for k in blobs if k.endswith(".pdf")]) == 2
@@ -159,3 +159,9 @@ def test_download_and_delete(client, owner):
     client.post(f"/api/spaces/{sid}/members", {"email": "bob@uni.example"})
     assert bob.delete(f"/api/spaces/{sid}/files/{fid}")[0] == 200  # editors may delete files
     assert client.get(f"/api/spaces/{sid}/files")[1]["files"] == []
+
+
+def test_titles_are_file_names():
+    from muddypoints.library import pretty_name
+    assert pretty_name("OdN_VL_9_-_Stated_Preference_Methods.pdf") == "OdN VL 9 - Stated Preference Methods"
+    assert pretty_name("OdN+VL+1+-+Einfuhrung.pdf") == "OdN VL 1 - Einfuhrung"

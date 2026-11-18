@@ -266,7 +266,7 @@ function putOnBoardDialog(spaceId, file, boards, done) {
 function filesSection(spaceId, files, boards, refresh) {
   const usedOn = (f) => [...new Set((f.published_to || []).map((u) => u.board))];
   const rows = files.map((f) => el("tr", {},
-    el("td", {}, el("strong", {}, f.title || f.name), el("div", { class: "muted small" }, f.name, ` · ${f.pages} pages`)),
+    el("td", {}, el("strong", {}, f.title || f.name), el("div", { class: "muted small" }, `${f.pages} pages`)),
     el("td", { class: "muted small" }, el("span", { title: fmtDate(f.uploaded_at) }, timeAgo(f.uploaded_at)),
       f.uploaded_by ? el("div", {}, f.uploaded_by) : ""),
     el("td", { class: "small" }, usedOn(f).length ? usedOn(f).join(", ") : el("span", { class: "muted" }, "not used yet")),

@@ -70,8 +70,20 @@ def _sessions(board_id: str) -> list[dict]:
     return sorted(db.query(f"BOARD#{board_id}", "SESSION#"), key=lambda s: (s["starts_at"], s["SK"]))
 
 
+GENERIC_TITLES = {"powerpoint presentation", "powerpoint-präsentation", "presentation", "präsentation", "untitled",
+                  "microsoft powerpoint"}
+
+
+def session_title(s: dict) -> str:
+    """Stored title, unless it is a meaningless embedded PDF title (older sessions) -> the file name."""
+    title = s.get("title") or ""
+    if not title or title.strip().lower() in GENERIC_TITLES or title.lower().startswith("microsoft powerpoint - "):
+        return library.pretty_name(s.get("name") or "Session")
+    return title
+
+
 def _public(s: dict, tz: ZoneInfo) -> dict:
-    return {"session_id": s["session_id"], "title": s["title"], "file_id": s.get("file_id"), "name": s.get("name"),
+    return {"session_id": s["session_id"], "title": session_title(s), "file_id": s.get("file_id"), "name": s.get("name"),
             "starts_at": s["starts_at"], "starts_at_local": local(s["starts_at"], tz), "status": s["status"],
             "switched_at": s.get("switched_at"), "error": s.get("error")}
 
@@ -97,7 +109,7 @@ def _new_session(user: dict, board: dict, spec: dict) -> dict:
     tz = board_tz(board)
     f = library.get_file(board["space_id"], spec.get("file_id"))
     starts_at = parse_time(spec.get("starts_at"), tz)
-    title = clean_name(spec.get("title") or f.get("title") or f["name"], "title", 160)
+    title = clean_name(spec.get("title") or library.pretty_name(f["name"]), "title", 160)
     sid = new_id()
     return {"PK": f"BOARD#{board['board_id']}", "SK": f"SESSION#{sid}", "session_id": sid, "file_id": f["file_id"],
             "sha256": f["sha256"], "name": f["name"], "title": title, "starts_at": starts_at, "status": "planned",
@@ -169,7 +181,7 @@ def upcoming(board_id: str) -> dict | None:
     if not planned:
         return None
     board = boards.get_board_meta(board_id)
-    return {"title": planned[0]["title"], "starts_at": planned[0]["starts_at"],
+    return {"title": session_title(planned[0]), "starts_at": planned[0]["starts_at"],
             "starts_at_local": local(planned[0]["starts_at"], board_tz(board))}
 
 
@@ -195,13 +207,13 @@ def advance(board_id: str, now: str | None = None) -> dict | None:
         data = media.get_bytes(f"blobs/{target['sha256']}.pdf")
         result = uploads._ingest(SYSTEM_USER, board_id, [(data, target["name"])], "replace", True,
                                  source_files=[{"file_id": target.get("file_id"), "name": target["name"],
-                                                "title": target["title"]}], notify=False)
+                                                "title": session_title(target)}], notify=False)
     except Exception as exc:
         message = getattr(exc, "message", None) or repr(exc)
         db.update(*key, {"status": "failed", "error": message[:500]})
         _refresh_next_switch(board_id)
         logger.exception("scheduled switch failed", extra={"data": {"board_id": board_id}})
-        notify.board_changed(board_id, f"Scheduled switch to “{target['title']}” FAILED",
+        notify.board_changed(board_id, f"Scheduled switch to “{session_title(target)}” FAILED",
                              f"Error: {message}\nThe board still shows the previous material.")
         return {"status": "failed", "error": message}
     for s in _sessions(board_id):
@@ -214,7 +226,7 @@ def advance(board_id: str, now: str | None = None) -> dict | None:
     _refresh_next_switch(board_id)
     log_event(logger, logging.INFO, "scheduled switch done", board_id=board_id, session_id=target["session_id"],
               skipped=len(skipped))
-    notify.board_changed(board_id, f"Now showing “{target['title']}”",
+    notify.board_changed(board_id, f"Now showing “{session_title(target)}”",
                          f"Scheduled switch at {local(target['starts_at'], board_tz(board))}.")
     return {"status": "live", "session_id": target["session_id"], "skipped": len(skipped)}
 

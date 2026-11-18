@@ -67,7 +67,7 @@ def _ingest(user: dict, board_id: str, blobs: list[tuple[bytes, str]], mode: str
             library.mark_published(board["space_id"], f["file_id"], board)
     result["files"] = [{"file_id": f.get("file_id"), "name": f.get("name")} for f in source_files]
     if notify and mode == "replace":
-        names = ", ".join(f.get("title") or f.get("name") or "?" for f in source_files)
+        names = ", ".join(library.pretty_name(f["name"]) if f.get("name") else (f.get("title") or "?") for f in source_files)
         notify_mod.board_changed(board_id, f"New material: {names}", f"Replaced by {user['name']}.", actor=user)
     log_event(logger, logging.INFO, "slides ingested", board_id=board_id, mode=mode,
               added=len(result["added_slides"]), removed=result.get("removed_slides", 0))

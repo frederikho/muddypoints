@@ -15,9 +15,9 @@ def setup(client, owner, monkeypatch):
     mails = []
     monkeypatch.setattr("muddypoints.mailer.send", lambda to, subject, body, reply_to=None: mails.append((to, subject)) or True)
     files = drop_upload(link_token(client, owner["space_id"]), [
-        ("L1.pdf", make_text_pdf(["Lecture 1"], title="Lecture 1: Intro")),
-        ("L2.pdf", make_text_pdf(["Lecture 2", "more"], title="Lecture 2: Markets")),
-        ("L3.pdf", make_text_pdf(["Lecture 3", "a", "b"], title="Lecture 3: Taxes"))])
+        ("Lecture_1_Intro.pdf", make_text_pdf(["Lecture 1"], title="PowerPoint Presentation")),
+        ("Lecture_2_Markets.pdf", make_text_pdf(["Lecture 2", "more"], title="PowerPoint Presentation")),
+        ("Lecture_3_Taxes.pdf", make_text_pdf(["Lecture 3", "a", "b"], title="PowerPoint Presentation"))])
     clock = {"now": "2026-10-01T08:00:00Z"}
     monkeypatch.setattr(schedule, "_now", lambda: clock["now"])
     return {**owner, "files": [f["file_id"] for f in files], "mails": mails, "clock": clock}
@@ -45,7 +45,7 @@ def test_coming_soon_then_switches_exactly_once(client, setup):
     s = setup
     plan(client, s, ["2026-10-20T16:00", "2026-10-27T16:00"])
     view = Client().get(f"/api/boards/{s['board_id']}")[1]
-    assert view["slides"] == [] and view["upcoming"]["title"] == "Lecture 1: Intro"
+    assert view["slides"] == [] and view["upcoming"]["title"] == "Lecture 1 Intro"
     assert view["upcoming"]["starts_at_local"] == "Tue 2026-10-20 16:00"
 
     s["clock"]["now"] = "2026-10-20T14:00:00Z"  # 16:00 Berlin
@@ -55,7 +55,7 @@ def test_coming_soon_then_switches_exactly_once(client, setup):
     assert len(view["slides"]) == 1 and view["upcoming"] is None
     sched = client.get(f"/api/boards/{s['board_id']}/schedule")[1]
     assert [x["status"] for x in sched["sessions"]] == ["live", "planned"]
-    assert s["mails"] and "Now showing “Lecture 1: Intro”" in s["mails"][-1][1]
+    assert s["mails"] and "Now showing “Lecture 1 Intro”" in s["mails"][-1][1]
 
 
 def test_switch_archives_comments_and_reopens(client, setup):
@@ -155,9 +155,20 @@ def test_schedule_and_view_page_via_mcp(mcp, client, setup):
         {"file_id": s["files"][2], "starts_at": "2026-11-03T16:00"}])
     assert len(res["sessions"]) == 1  # planned sessions replaced
     got, _ = mcp.call("get_schedule", board_id=s["board_id"])
-    assert got["timezone"] == "Europe/Berlin" and got["sessions"][0]["title"] == "Lecture 3: Taxes"
+    assert got["timezone"] == "Europe/Berlin" and got["sessions"][0]["title"] == "Lecture 3 Taxes"
     status, d = mcp("tools/call", {"name": "view_file_page", "arguments": {
         "workspace_id": s["space_id"], "file_id": s["files"][1], "page": 2}})
     content = d["result"]["content"]
     assert content[0]["type"] == "image" and content[0]["mimeType"] == "image/jpeg" and len(content[0]["data"]) > 1000
     assert "page 2 of 2" in content[1]["text"]
+
+
+def test_generic_session_titles_show_file_name(client, setup):
+    s = setup
+    plan(client, s, ["2026-10-20T16:00"])
+    sess = db.query(f"BOARD#{s['board_id']}", "SESSION#")[0]
+    assert sess["title"] == "Lecture 1 Intro"  # new sessions default to the file name
+    db.update(sess["PK"], sess["SK"], {"title": "PowerPoint Presentation"})  # like sessions created before the fix
+    got = client.get(f"/api/boards/{s['board_id']}/schedule")[1]["sessions"][0]
+    assert got["title"] == "Lecture 1 Intro"
+    assert Client().get(f"/api/boards/{s['board_id']}")[1]["upcoming"]["title"] == "Lecture 1 Intro"

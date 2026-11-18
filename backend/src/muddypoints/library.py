@@ -46,6 +46,13 @@ def _iso(epoch: int) -> str:
     return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def pretty_name(filename: str) -> str:
+    """'OdN_VL_9_-_Stated_Preference_Methods.pdf' -> 'OdN VL 9 - Stated Preference Methods' (used as the title:
+    embedded PDF titles are mostly useless, e.g. 'PowerPoint Presentation')."""
+    base = filename[:-4] if filename.lower().endswith(".pdf") else filename
+    return " ".join(base.replace("_", " ").replace("+", " ").split()) or filename
+
+
 def _is_sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
 
@@ -100,7 +107,8 @@ def _entry_for_blob(space_id: str, meta: dict, name: str, by: str) -> tuple[dict
             return existing, False
     file_id = sortable_id()
     entry = {"PK": f"SPACE#{space_id}", "SK": f"FILE#{file_id}", "file_id": file_id, "sha256": sha,
-             "name": safe_filename(name), "title": meta["title"], "pages": meta["pages"], "size": meta["size"],
+             "name": safe_filename(name), "title": pretty_name(safe_filename(name)), "pdf_title": meta["title"],
+             "pages": meta["pages"], "size": meta["size"],
              "outline": meta.get("outline", []), "chars": meta.get("chars", 0), "uploaded_at": now_iso(),
              "uploaded_by": by, "published_to": []}
     if not db.put({"PK": f"SPACE#{space_id}", "SK": f"FILEHASH#{sha}", "file_id": file_id}, if_absent=True):
@@ -204,14 +212,16 @@ def confirm(token: str, upload_key, sha256) -> dict:
     _count(token, link)
     entry, created = add_bytes(link["space_id"], data, name, f"upload link of {link.get('created_by')}")
     return {"name": name, "status": "added" if created else "exists", "file_id": entry["file_id"],
-            "title": entry["title"], "pages": entry["pages"]}
+            "title": pretty_name(entry["name"]), "pages": entry["pages"]}
 
 
 # --- workspace files (staff / Claude) -------------------------------------------------------
 
 def _public(item: dict) -> dict:
-    return {k: item.get(k) for k in ("file_id", "name", "title", "pages", "size", "outline", "uploaded_at",
-                                     "uploaded_by", "published_to")}
+    out = {k: item.get(k) for k in ("file_id", "name", "pages", "size", "outline", "uploaded_at", "uploaded_by",
+                                    "published_to")}
+    out["title"] = pretty_name(item["name"])  # always the file name (older entries stored the embedded PDF title)
+    return out
 
 
 def list_files(user: dict, space_id: str, with_outline: bool = True) -> list[dict]:
@@ -313,13 +323,16 @@ def page_image(user: dict, space_id: str, file_id: str, page: int = 1, max_side:
 
 def record_history(board_id: str, by: str, mode: str, files: list[dict], archive_key: str | None) -> None:
     db.put({"PK": f"BOARD#{board_id}", "SK": f"HIST#{sortable_id()}", "at": now_iso(), "by": by, "mode": mode,
-            "files": [{"file_id": f.get("file_id"), "name": f.get("name"), "title": f.get("title")} for f in files],
+            "files": [{"file_id": f.get("file_id"), "name": f.get("name"),
+                       "title": pretty_name(f["name"]) if f.get("name") else f.get("title")} for f in files],
             "archive_key": archive_key})
 
 
 def history(user: dict, board_id: str) -> list[dict]:
     board, _ = boards.require_board(user, board_id, "editor")
     items = sorted(db.query(f"BOARD#{board_id}", "HIST#"), key=lambda i: i["SK"], reverse=True)
-    return [{"at": i["at"], "by": i.get("by"), "mode": i.get("mode"), "files": i.get("files", []),
+    return [{"at": i["at"], "by": i.get("by"), "mode": i.get("mode"),
+             "files": [{**f, "title": pretty_name(f["name"]) if f.get("name") else f.get("title")}
+                       for f in i.get("files", [])],
              "archived_previous_material": bool(i.get("archive_key")), "workspace_id": board["space_id"]}
             for i in items]

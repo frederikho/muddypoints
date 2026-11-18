@@ -205,7 +205,9 @@ async function loadSchedule() {
     const pick = el("select", {}, ...files.map((f) => el("option", { value: f.file_id }, `${f.title || f.name}`)));
     const when = el("input", { type: "datetime-local", value: toLocalInput(next.toISOString()) });
     const add = el("button", { class: "block", type: "button", onclick: () => busy(add, async () => {
-      await api("POST", `/api/boards/${boardId}/sessions`, { file_id: pick.value, starts_at: fromLocalInput(when.value) }); reload(); await refresh(true);
+      const { session } = await api("POST", `/api/boards/${boardId}/sessions`, { file_id: pick.value, starts_at: fromLocalInput(when.value) });
+      if (new Date(session.starts_at) <= new Date()) await refresh(true); // already due -> the board switches now
+      else reload();
     }) }, "+ Add session");
     box.replaceChildren(
       el("p", { class: "muted small" }, "At each time the current slides and comments are archived as PDF and the session's file goes live. Times in your local time."),
@@ -298,10 +300,11 @@ function renderPanel() {
   settingsBtn.classList.toggle("hidden", !role);
   if (!role) { setPanel(false); return; }
   const wasOpen = panel.classList.contains("open");
+  const scrollTop = panel.scrollTop;
 
   const fileInput = el("input", { type: "file", multiple: true, accept: "application/pdf,image/*", class: "hidden" });
-  const mode = el("select", {}, el("option", { value: "append" }, "Add after existing slides"),
-    el("option", { value: "replace" }, "Replace all slides (old ones are archived)"));
+  const mode = el("select", {}, el("option", { value: "replace" }, "Replace all slides (old ones are archived)"),
+    el("option", { value: "append" }, "Add after existing slides"));
   const status = el("div", { class: "muted small", id: "upload-status" });
   const uploadBtn = el("button", { class: "primary block", disabled: uploading, onclick: () => fileInput.click() }, "⬆ Upload PDF / images");
   fileInput.addEventListener("change", () => busy(uploadBtn, async () => {
@@ -345,6 +348,7 @@ function renderPanel() {
     section("Archive", el("div", { id: "archive-list", class: "stack" })),
     section("Notifications", el("div", { id: "notify-box" })),
     section("Danger zone", clearBtn));
+  panel.scrollTop = scrollTop;
   if (wasOpen) loadPanelData();
 }
 
