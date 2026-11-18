@@ -67,8 +67,8 @@ def p(req: Request, name: str) -> str:
 
 @router.route("GET", "/api/health")
 def health(req):
-    from . import __version__
-    return {"ok": True, "version": __version__}
+    from . import __version__, media
+    return {"ok": True, "version": __version__, "upload_host": media.upload_host()}
 
 
 @router.route("POST", "/api/identity")

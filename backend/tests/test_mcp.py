@@ -84,7 +84,9 @@ def test_tools_end_to_end(mcp, owner, monkeypatch):
 
     upl, err = mcp.call("prepare_slide_upload", board_id=board["board_id"],
                         files=[{"filename": "a.pdf", "content_type": "application/pdf"}])
-    assert not err and upl[0]["upload_url"].startswith("https://")
+    assert not err and upl["uploads"][0]["upload_url"].startswith("https://")
+    assert upl["upload_host"] == "muddypoints-test-media.s3.eu-central-1.amazonaws.com"
+    assert upl["upload_host"] in upl["uploads"][0]["upload_url"]
 
 
 def test_tool_errors_are_reported_not_raised(mcp, owner):

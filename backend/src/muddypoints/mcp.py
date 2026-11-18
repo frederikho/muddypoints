@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Any, Callable
 
-from . import __version__, applogs, boards, export, identity, spaces, uploads, users
+from . import __version__, applogs, boards, export, identity, media, spaces, uploads, users
 from .http import ApiError, Request, json_response
 from .log import bind, get_logger, log_event
 
@@ -23,7 +23,11 @@ Hierarchy: space (e.g. a course) -> boards (one public link per class) -> slides
 Students comment anonymously on slides via the public board URL.
 Typical weekly workflow for a board: export_board_pdf (save the comments for OLAT) and then
 replace_board_material with the new lecture PDF (this archives a PDF of the old comments automatically).
-Owners can delete things; editors can do everything else. IDs come from list_* tools."""
+Owners can delete things; editors can do everything else. IDs come from list_* tools.
+New material: prefer import_slides_from_url / replace_board_material when the user gives a link (Google Drive and
+Dropbox share links work). For a file attached in the chat use prepare_slide_upload, PUT the bytes from your sandbox,
+then confirm_slide_upload. If the PUT is blocked by your network policy, tell the user to allow the domain given in
+`upload_host` (Claude settings -> code execution / network allowed domains) or to send a share link instead."""
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -191,7 +195,11 @@ def _replace(user, a):
           "filename": S, "content_type": {"type": "string", "description": "e.g. application/pdf, image/png"}},
           "required": ["filename", "content_type"]}}}, ("board_id", "files"))
 def _prepare(user, a):
-    return uploads.prepare(user, a["board_id"], a.get("files"))
+    host = media.upload_host()
+    return {"uploads": uploads.prepare(user, a["board_id"], a.get("files")), "upload_host": host,
+            "if_upload_blocked": f"If your sandbox's network policy blocks {host}, ask the user to add this domain to "
+                                 "the allowed domains for code execution in their Claude settings, or to send a public "
+                                 "share link of the file (then use import_slides_from_url / replace_board_material)."}
 
 
 @tool("confirm_slide_upload", "Step 2 of a direct upload: convert uploaded files into slides (in the given order).",

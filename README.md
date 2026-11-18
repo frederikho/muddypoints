@@ -120,6 +120,11 @@ Each admin does this once, for their own account. Afterwards you can say things 
 1. Start a new chat. In the **+** / tools menu under *Connectors*, make sure **Muddy Points** is switched on.
 2. Ask: *"Which spaces and boards do I have in Muddy Points?"* The first time, Claude may ask permission to use the tools; allow it.
 
+**d) Optional: let Claude upload PDFs you attach in the chat**
+Claude sends attached files from its code sandbox, and that sandbox only reaches allowed domains. Without this step Claude reports that the upload was "blocked by the network policy".
+- In Claude go to **Settings** → the code-execution / *network* section (on Team/Enterprise plans an admin may have to do this) and add the storage domain to the **allowed domains**: `muddypoints-mediabucket-r2t7zolagqqg.s3.eu-central-1.amazonaws.com`. The exact domain is also shown on the Muddy Points account page under Claude / MCP access.
+- No setting needed if you give Claude a **share link** instead (Google Drive, Dropbox or any public URL): *"Replace the ERE board with this PDF: <link>"*.
+
 Good to know:
 - Claude acts with **your** permissions. Editors can't delete things via Claude either.
 - Treat the URL like a password. Revoke it any time on the same page (Claude / MCP access → **Revoke**) and create a new one.

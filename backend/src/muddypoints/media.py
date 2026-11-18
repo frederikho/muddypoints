@@ -30,6 +30,13 @@ ALLOWED_CONTENT_TYPES = {
 
 # --- S3 helpers -----------------------------------------------------------------------------
 
+def upload_host() -> str:
+    """Host name that presigned upload URLs point to (must be reachable/allowlisted by uploading clients)."""
+    if settings.endpoint_url:
+        return urllib.parse.urlparse(settings.endpoint_url).netloc
+    return f"{settings.bucket_name}.s3.{settings.region}.amazonaws.com"
+
+
 def presigned_put(key: str, content_type: str) -> str:
     return aws.s3().generate_presigned_url(
         "put_object", Params={"Bucket": settings.bucket_name, "Key": key, "ContentType": content_type},

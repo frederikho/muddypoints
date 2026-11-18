@@ -10,7 +10,8 @@ from muddypoints.log import JsonFormatter, bind, clear
 
 
 def test_health_and_routing(client):
-    assert client.get("/api/health")[1]["ok"] is True
+    health = client.get("/api/health")[1]
+    assert health["ok"] is True and health["upload_host"].endswith(".s3.eu-central-1.amazonaws.com")
     s, d = client.get("/api/nope")
     assert s == 404 and d["error"]["code"] == "not_found"
     assert client.request("PUT", "/api/health")[0] == 405

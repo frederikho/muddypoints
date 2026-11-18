@@ -300,7 +300,8 @@ async function spaceView(spaceId) {
 
 // --- account ---------------------------------------------------------------------------------
 async function accountView() {
-  const [{ user }, { api_keys }] = await Promise.all([api("GET", "/api/me"), api("GET", "/api/me/api-keys")]);
+  const [{ user }, { api_keys }, info] = await Promise.all([api("GET", "/api/me"), api("GET", "/api/me/api-keys"),
+    api("GET", "/api/health").catch(() => ({}))]);
   session.set(session.token, user);
   renderNav();
   const refresh = () => accountView().catch(showError);
@@ -364,7 +365,11 @@ async function accountView() {
         el("li", {}, "In Claude (claude.ai or desktop app) open ", el("strong", {}, "Settings → Connectors → Add custom connector"), "."),
         el("li", {}, "Name: ", el("code", {}, "Muddy Points"), ". URL: paste the connector URL. Authentication: ", el("strong", {}, "No authentication"),
           " (the key is part of the URL). Leave request headers empty. Click ", el("strong", {}, "Add"), "."),
-        el("li", {}, "In a new chat, switch on ", el("strong", {}, "Muddy Points"), " in the + / tools menu and ask: “Which spaces do I have in Muddy Points?”")),
+        el("li", {}, "In a new chat, switch on ", el("strong", {}, "Muddy Points"), " in the + / tools menu and ask: “Which spaces do I have in Muddy Points?”"),
+        info.upload_host && el("li", {}, el("em", {}, "Optional, for PDFs you attach in the chat: "),
+          "Claude uploads them from its code sandbox, which only reaches allowed domains. In Claude's settings, add this domain to the allowed domains for code execution: ",
+          el("code", {}, info.upload_host), " ", el("button", { class: "ghost sm", type: "button", onclick: () => copyText(info.upload_host) }, "Copy"),
+          ". Alternatively, just give Claude a share link (Google Drive, Dropbox, …) to the PDF.")),
       el("p", { class: "muted small" }, "Treat the URL like a password. If it leaks or you lose it, revoke the key here and create a new one."),
       keyForm, newKeyBox,
       api_keys.length ? el("table", {}, el("tbody", {}, keyRows)) : el("p", { class: "muted small" }, "No keys yet.")));
