@@ -1,5 +1,6 @@
 """Lambda entry point. Routes /api/* to the REST router and /mcp* to the MCP server."""
 import logging
+import re
 import time
 import traceback
 
@@ -11,12 +12,22 @@ from .util import new_id
 logger = log.get_logger("muddypoints.handler")
 
 
+_SECRET_PATHS = [(re.compile(r"^/mcp/[^/]+"), "/mcp/<key>"), (re.compile(r"^/api/drop/[^/]+"), "/api/drop/<token>")]
+
+
+def redact_path(path: str) -> str:
+    """Never log secrets that live in the URL path (MCP API keys, upload-link tokens)."""
+    for pattern, replacement in _SECRET_PATHS:
+        path = pattern.sub(replacement, path)
+    return path
+
+
 def lambda_handler(event: dict, context) -> dict:
     started = time.time()
     log.clear()
     req = Request.from_event(event)
     # Never log the secret part of /mcp/<api key>.
-    safe_path = "/mcp/<key>" if req.path.startswith("/mcp/") else req.path
+    safe_path = redact_path(req.path)
     log.bind(request_id=getattr(context, "aws_request_id", None) or new_id(), method=req.method, path=safe_path)
     status = 500
     try:

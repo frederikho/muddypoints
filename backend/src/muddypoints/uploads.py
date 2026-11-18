@@ -1,7 +1,7 @@
 """Getting new material onto a board: presigned uploads, URL imports, append/replace."""
 import logging
 
-from . import boards, export, media
+from . import boards, export, library, media
 from .http import ApiError
 from .log import get_logger, log_event
 from .util import new_id, safe_filename
@@ -34,19 +34,37 @@ def _check_mode(user: dict, board_id: str, mode) -> str:
     return mode
 
 
-def _ingest(user: dict, board_id: str, blobs: list[tuple[bytes, str]], mode: str, archive: bool) -> dict:
+def _ingest(user: dict, board_id: str, blobs: list[tuple[bytes, str]], mode: str, archive: bool,
+            source_files: list[dict] | None = None) -> dict:
+    """Render files to slides and put them on the board. PDFs are also kept in the workspace files
+    (deduplicated) and the event is recorded in the board history."""
     pages = []
     for data, name in blobs:  # render everything first: nothing changes if a file is broken
         pages.extend(media.render(data, name))
     if not pages:
         raise ApiError(400, "invalid_input", "No pages found in the uploaded files")
+    board = boards.get_board_meta(board_id)
+    if source_files is None:  # direct uploads / URL imports: keep PDFs in the workspace files for later reuse
+        source_files = []
+        for data, name in blobs:
+            if data.startswith(b"%PDF"):
+                entry, _ = library.add_bytes(board["space_id"], data, name, user["name"])
+                source_files.append(entry)
+            else:
+                source_files.append({"file_id": None, "name": name, "title": name})
     result: dict = {"mode": mode}
+    archive_info = None
     if mode == "replace":
         if archive:
-            result["archive"] = export.archive_if_needed(board_id)
+            archive_info = result["archive"] = export.archive_if_needed(board_id)
         result["removed_slides"] = boards.clear_slides(board_id, user["name"])
     result["added_slides"] = boards.add_slides(board_id, media.store_rendered(board_id, pages), user["name"])
     result["board_url"] = boards.board_url(board_id)
+    library.record_history(board_id, user["name"], mode, source_files, (archive_info or {}).get("key"))
+    for f in source_files:
+        if f.get("file_id"):
+            library.mark_published(board["space_id"], f["file_id"], board)
+    result["files"] = [{"file_id": f.get("file_id"), "name": f.get("name")} for f in source_files]
     log_event(logger, logging.INFO, "slides ingested", board_id=board_id, mode=mode,
               added=len(result["added_slides"]), removed=result.get("removed_slides", 0))
     return result

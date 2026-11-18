@@ -175,3 +175,25 @@ def test_get_upload_link(mcp, client, owner):
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_upload_link", "arguments": args}}))[1]
     assert not call({"board_id": owner["board_id"]})["result"]["isError"]
     assert not call({"board_id": owner["board_id"], "replace": True})["result"]["isError"]
+
+
+def test_files_workflow_via_mcp(mcp, client, owner):
+    from test_library import drop_upload, make_text_pdf
+    link, err = mcp.call("create_upload_link", workspace_id=owner["space_id"], note="Lectures")
+    assert not err and "drop.html#" in link["upload_link"]
+    token = link["upload_link"].split("#", 1)[1]
+    long_pages = [f"Page {i}: " + "word " * 1500 for i in range(1, 11)]  # ~7.5k chars per page
+    drop_upload(token, [("syllabus.pdf", make_text_pdf(["Syllabus WS 26/27\nTue 14:00-16:00"])),
+                        ("L5.pdf", make_text_pdf(long_pages))])
+    files, _ = mcp.call("list_files", workspace_id=owner["space_id"])
+    assert {f["name"] for f in files} == {"syllabus.pdf", "L5.pdf"} and "workspace_id" not in files[0]
+    l5 = next(f for f in files if f["name"] == "L5.pdf")
+    part, _ = mcp.call("read_file", workspace_id=owner["space_id"], file_id=l5["file_id"], max_chars=16000)
+    assert [p["page"] for p in part["pages"]] == [1, 2] and part["next_from_page"] == 3
+    rest, _ = mcp.call("read_file", workspace_id=owner["space_id"], file_id=l5["file_id"], from_page=9, max_chars=16000)
+    assert [p["page"] for p in rest["pages"]] == [9, 10] and rest["next_from_page"] is None
+    res, err = mcp.call("publish_file", workspace_id=owner["space_id"], file_id=l5["file_id"],
+                        board_id=owner["board_id"], mode="replace")
+    assert not err and len(res["added_slides"]) == 10
+    hist, _ = mcp.call("get_board_history", board_id=owner["board_id"])
+    assert hist[0]["files"][0]["name"] == "L5.pdf" and hist[0]["workspace_id"] == owner["space_id"]

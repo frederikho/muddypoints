@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Any, Callable
 
-from . import __version__, applogs, boards, export, identity, media, spaces, uploads, users
+from . import __version__, applogs, boards, export, identity, library, media, spaces, uploads, users
 from .http import ApiError, Request, json_response
 from .log import bind, get_logger, log_event
 
@@ -25,7 +25,15 @@ Students comment anonymously on slides via the public board URL.
 Typical weekly workflow for a board: export_board_pdf (save the comments for OLAT) and then
 replace_board_material with the new lecture PDF (this archives a PDF of the old comments automatically).
 Owners can do everything; editors everything except deleting a workspace and managing owners. IDs come from list_* tools.
-New material:
+Files: every workspace has permanent, shared FILES (lecture PDFs, syllabi; reused across semesters).
+- The user wants to give you files (attached in the chat, on their computer, several lectures to choose from):
+  create_upload_link for the workspace and give them the link (no login; they drag PDFs in; duplicates are detected
+  automatically). Do NOT try to upload attached files from your code sandbox; it is usually blocked.
+- Then list_files (compact overview: title, pages, outline, where it was used before), read_file only where you need
+  details (page ranges, paginated), and publish_file to put a file on a board (mode=replace for the weekly swap;
+  archives the old slides+comments first).
+- "What did we use before / put up week 10 again": get_board_history and list_files (published_to), then publish_file.
+New material from elsewhere:
 - The user gives a link (Google Drive/Dropbox share link or any public URL): use replace_board_material (weekly swap)
   or import_slides_from_url (add).
 - The user attaches a file in the chat, or has the file on their computer: call get_upload_link (replace=true for a
@@ -251,6 +259,57 @@ def _delete_slide(user, a):
       "is saved first.", {**BOARD, "archive": {"type": "boolean", "default": True}}, ("board_id",), destructive=True)
 def _clear(user, a):
     return export.clear_board(user, a["board_id"], a.get("archive", True))
+
+
+# --- workspace files ------------------------------------------------------------------------
+
+@tool("create_upload_link",
+      "Temporary upload page for a workspace (no login needed): the user drags in PDFs, which are stored permanently "
+      "in the workspace's files (not on a board; duplicates are recognised). Use whenever the user wants to give you "
+      "files. Afterwards call list_files.",
+      {**SPACE, "hours": {"type": "integer", "default": 24, "description": "How long the LINK works, 1-168 hours"},
+       "note": {"type": "string", "description": "Short text shown on the upload page, e.g. 'Lectures 4-6'"}},
+      ("workspace_id",))
+def _create_link(user, a):
+    return library.create_link(user, a["workspace_id"], a.get("hours", 24), a.get("note"))
+
+
+@tool("list_files", "The workspace's files (newest first): name, title, page count, outline/table of contents and "
+      "where each file was published before. Cheap overview - read details with read_file.",
+      SPACE, ("workspace_id",), read_only=True)
+def _list_files(user, a):
+    return library.list_files(user, a["workspace_id"])
+
+
+@tool("read_file", "Extracted text of a file, page by page. Read in chunks: returns next_from_page when there is "
+      "more. Use page ranges to look only at what you need.",
+      {**SPACE, "file_id": S, "from_page": {"type": "integer", "default": 1}, "to_page": {"type": "integer"},
+       "max_chars": {"type": "integer", "default": 15000, "description": "Up to 60000"}},
+      ("workspace_id", "file_id"), read_only=True)
+def _read_file(user, a):
+    return library.read(user, a["workspace_id"], a["file_id"], a.get("from_page", 1), a.get("to_page"),
+                        a.get("max_chars", 15000))
+
+
+@tool("publish_file", "Put a workspace file on a board (same workspace) as slides. mode=replace swaps the board's "
+      "material (archives a PDF of the old slides+comments first). The file stays in the workspace files.",
+      {**SPACE, "file_id": S, **BOARD, **MODE}, ("workspace_id", "file_id", "board_id"))
+def _publish_file(user, a):
+    return library.publish(user, a["workspace_id"], a["file_id"], a["board_id"], a.get("mode", "append"),
+                           a.get("archive", True))
+
+
+@tool("delete_file", "Delete a file from the workspace files (boards that already show it are not affected).",
+      {**SPACE, "file_id": S}, ("workspace_id", "file_id"), destructive=True)
+def _delete_file(user, a):
+    library.delete(user, a["workspace_id"], a["file_id"])
+    return {"ok": True}
+
+
+@tool("get_board_history", "What was put on a board when and by whom (newest first), incl. the file ids - use it to "
+      "find material from earlier weeks/semesters and publish it again.", BOARD, ("board_id",), read_only=True)
+def _board_history(user, a):
+    return library.history(user, a["board_id"])
 
 
 # --- export & archive -----------------------------------------------------------------------

@@ -5,7 +5,7 @@ Anonymous students send `X-Anon-Token: <token from POST /api/identity>`.
 """
 import logging
 
-from . import applogs, boards, export, feedback, identity, spaces, uploads, users
+from . import applogs, boards, export, feedback, identity, library, spaces, uploads, users
 from .http import ApiError, Request, Router
 from .log import bind, get_logger, log_event
 
@@ -301,3 +301,57 @@ def get_logs(req):
     q = req.query
     return applogs.fetch(require_user(req), q.get("minutes", 60), q.get("level", "INFO"), q.get("contains"),
                          q.get("limit", 100))
+
+
+# --- upload links ("drop" page, no login: the token in the URL is the credential) -----------------
+
+@router.route("GET", "/api/drop/{token}")
+def drop_info(req):
+    return library.link_info(p(req, "token"))
+
+
+@router.route("POST", "/api/drop/{token}/check")
+def drop_check(req):
+    return {"files": library.check(p(req, "token"), body(req).get("files"))}
+
+
+@router.route("POST", "/api/drop/{token}/confirm")
+def drop_confirm(req):
+    d = body(req)
+    return {"file": library.confirm(p(req, "token"), d.get("upload_key"), d.get("sha256"))}
+
+
+# --- workspace files ----------------------------------------------------------------------------
+
+@router.route("POST", "/api/spaces/{space_id}/upload-links")
+def create_upload_link(req):
+    d = body(req)
+    return library.create_link(require_user(req), p(req, "space_id"), d.get("hours"), d.get("note"))
+
+
+@router.route("GET", "/api/spaces/{space_id}/files")
+def list_files(req):
+    return {"files": library.list_files(require_user(req), p(req, "space_id"), with_outline=False)}
+
+
+@router.route("GET", "/api/spaces/{space_id}/files/{file_id}/download")
+def download_file(req):
+    return library.download_url(require_user(req), p(req, "space_id"), p(req, "file_id"))
+
+
+@router.route("POST", "/api/spaces/{space_id}/files/{file_id}/publish")
+def publish_file(req):
+    d = body(req)
+    return library.publish(require_user(req), p(req, "space_id"), p(req, "file_id"), d.get("board_id"),
+                           d.get("mode", "append"), d.get("archive", True))
+
+
+@router.route("DELETE", "/api/spaces/{space_id}/files/{file_id}")
+def delete_file(req):
+    library.delete(require_user(req), p(req, "space_id"), p(req, "file_id"))
+    return {"ok": True}
+
+
+@router.route("GET", "/api/boards/{board_id}/history")
+def board_history(req):
+    return {"history": library.history(require_user(req), p(req, "board_id"))}
