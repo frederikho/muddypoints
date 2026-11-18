@@ -292,6 +292,23 @@ def delete(user: dict, space_id: str, file_id: str) -> None:
     log_event(logger, logging.INFO, "file deleted", space_id=space_id, file_id=file_id, name=item["name"])
 
 
+def page_image(user: dict, space_id: str, file_id: str, page: int = 1, max_side: int = 1400) -> tuple[bytes, dict]:
+    """JPEG of one page (for Claude to look at scanned slides, diagrams, formulas)."""
+    spaces.require_space(user, space_id, "editor")
+    item = get_file(space_id, file_id)
+    try:
+        page = int(page or 1)
+    except (TypeError, ValueError):
+        raise ApiError(400, "invalid_input", "'page' must be a number")
+    with pymupdf.open(stream=file_bytes(item), filetype="pdf") as doc:
+        if not 1 <= page <= doc.page_count:
+            raise ApiError(400, "invalid_input", f"'page' must be between 1 and {doc.page_count}")
+        p = doc[page - 1]
+        zoom = min(2.0, max_side / max(p.rect.width, p.rect.height, 1))
+        pix = p.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+        return pix.tobytes("jpg", jpg_quality=80), {"file": item["name"], "page": page, "pages": doc.page_count}
+
+
 # --- board history --------------------------------------------------------------------------
 
 def record_history(board_id: str, by: str, mode: str, files: list[dict], archive_key: str | None) -> None:

@@ -224,6 +224,8 @@ def create_board(req):
 
 @router.route("GET", "/api/boards/{board_id}")
 def get_board(req):
+    from . import schedule
+    schedule.advance_if_due(boards.get_board_meta(p(req, "board_id")))  # never show material whose time is over
     return boards.view(p(req, "board_id"), current_viewer(req))
 
 
@@ -231,7 +233,7 @@ def get_board(req):
 def update_board(req):
     d = body(req)
     return {"board": boards.update_board(require_user(req), p(req, "board_id"), d.get("name"), d.get("locked"),
-                                         d.get("background"))}
+                                         d.get("background"), d.get("timezone"))}
 
 
 @router.route("DELETE", "/api/boards/{board_id}")
@@ -355,3 +357,46 @@ def delete_file(req):
 @router.route("GET", "/api/boards/{board_id}/history")
 def board_history(req):
     return {"history": library.history(require_user(req), p(req, "board_id"))}
+
+
+# --- schedule & notifications -------------------------------------------------------------------
+
+@router.route("GET", "/api/boards/{board_id}/schedule")
+def get_schedule(req):
+    from . import schedule
+    return schedule.get_schedule(require_user(req), p(req, "board_id"))
+
+
+@router.route("POST", "/api/boards/{board_id}/sessions")
+def add_session(req):
+    from . import schedule
+    return {"session": schedule.add_session(require_user(req), p(req, "board_id"), body(req))}
+
+
+@router.route("PATCH", "/api/boards/{board_id}/sessions/{session_id}")
+def update_session(req):
+    from . import schedule
+    d = body(req)
+    return {"session": schedule.update_session(require_user(req), p(req, "board_id"), p(req, "session_id"),
+                                               d.get("starts_at"), d.get("title"), d.get("file_id"))}
+
+
+@router.route("DELETE", "/api/boards/{board_id}/sessions/{session_id}")
+def remove_session(req):
+    from . import schedule
+    schedule.remove_session(require_user(req), p(req, "board_id"), p(req, "session_id"))
+    return {"ok": True}
+
+
+@router.route("GET", "/api/boards/{board_id}/notifications")
+def get_notifications(req):
+    from . import notify
+    user = require_user(req)
+    boards.require_board(user, p(req, "board_id"), "editor")
+    return {"enabled": notify.is_enabled(p(req, "board_id"), user["user_id"])}
+
+
+@router.route("PUT", "/api/boards/{board_id}/notifications")
+def set_notifications(req):
+    from . import notify
+    return notify.set_enabled(require_user(req), p(req, "board_id"), bool(body(req).get("enabled")))

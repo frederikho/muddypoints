@@ -60,7 +60,7 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: [cloudformation:*, lambda:*, dynamodb:*, s3:*, logs:*, sts:GetCallerIdentity]
+                Action: [cloudformation:*, lambda:*, dynamodb:*, s3:*, logs:*, scheduler:*, sts:GetCallerIdentity]
                 Resource: "*"
               - Effect: Allow
                 Action: [iam:GetRole, iam:CreateRole, iam:DeleteRole, iam:PutRolePolicy, iam:DeleteRolePolicy,

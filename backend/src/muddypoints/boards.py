@@ -41,7 +41,8 @@ def public_board(board: dict) -> dict:
             "locked": bool(board.get("locked")), "created_at": board.get("created_at"),
             "updated_at": board.get("updated_at"), "url": board_url(board["board_id"]),
             "background": board.get("background") if board.get("background") in BACKGROUNDS else "plain",
-            "last_activity_at": last_activity(board), "last_activity_by": board.get("last_activity_by")}
+            "last_activity_at": last_activity(board), "last_activity_by": board.get("last_activity_by"),
+            "timezone": board.get("timezone") or "Europe/Berlin", "next_switch_at": board.get("next_switch_at")}
 
 
 def last_activity(board: dict) -> str | None:
@@ -83,7 +84,7 @@ def list_boards(user: dict, space_id: str) -> list[dict]:
                   key=lambda b: b["name"].lower())
 
 
-def update_board(user: dict, board_id: str, name=None, locked=None, background=None) -> dict:
+def update_board(user: dict, board_id: str, name=None, locked=None, background=None, timezone=None) -> dict:
     require_board(user, board_id, "editor")
     fields = {"updated_at": now_iso(), "last_activity_at": now_iso(), "last_activity_by": user["name"]}
     if name is not None:
@@ -94,6 +95,13 @@ def update_board(user: dict, board_id: str, name=None, locked=None, background=N
         fields["locked"] = locked
     if background is not None:
         fields["background"] = _check_background(background)
+    if timezone is not None:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            ZoneInfo(str(timezone))
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ApiError(400, "invalid_input", f"Unknown time zone '{timezone}' (use e.g. Europe/Berlin)")
+        fields["timezone"] = str(timezone)
     board = db.update(f"BOARD#{board_id}", "META", fields)
     log_event(logger, logging.INFO, "board updated", board_id=board_id, fields=sorted(fields))
     return public_board(board)
@@ -144,7 +152,11 @@ def view(board_id: str, viewer: Viewer | None) -> dict:
         "likes": s.get("likes", 0), "liked": s["slide_id"] in my_likes,
         "comments": by_slide.get(s["slide_id"], []),
     } for s in data["slides"]]
-    return {"board": public_board(data["meta"]), "slides": slides, "my_role": role,
+    upcoming = None
+    if not slides:
+        from . import schedule  # schedule imports boards
+        upcoming = schedule.upcoming(board_id)
+    return {"board": public_board(data["meta"]), "slides": slides, "my_role": role, "upcoming": upcoming,
             "viewer": {"name": viewer.name, "is_user": viewer.is_user} if viewer else None}
 
 

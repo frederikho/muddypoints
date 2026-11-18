@@ -111,5 +111,7 @@ def clear_board(user: dict, board_id: str, archive: bool = True) -> dict:
         raise ApiError(400, "invalid_input", "'archive' must be true or false")
     result = {"archive": archive_if_needed(board_id) if archive else None}
     result["removed_slides"] = boards.clear_slides(board_id, user["name"])
+    from . import notify  # export <- notify <- boards: import lazily
+    notify.board_changed(board_id, "Board cleared", f"Cleared by {user['name']}.", actor=user)
     log_event(logger, logging.INFO, "board cleared", board_id=board_id, removed=result["removed_slides"])
     return result

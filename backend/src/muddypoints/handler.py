@@ -23,6 +23,15 @@ def redact_path(path: str) -> str:
 
 
 def lambda_handler(event: dict, context) -> dict:
+    if event.get("source") == "muddypoints.scheduler":  # EventBridge Scheduler, every 5 minutes
+        log.clear()
+        log.bind(request_id=getattr(context, "aws_request_id", None) or new_id(), channel="scheduler")
+        from . import schedule
+        try:
+            return {"ok": True, "boards": schedule.run_due()}
+        except Exception:
+            logger.exception("scheduler run crashed")
+            return {"ok": False}
     started = time.time()
     log.clear()
     req = Request.from_event(event)

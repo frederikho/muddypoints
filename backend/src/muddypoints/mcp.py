@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Any, Callable
 
-from . import __version__, applogs, boards, export, identity, library, media, spaces, uploads, users
+from . import __version__, applogs, boards, export, identity, library, media, notify, schedule, spaces, uploads, users
 from .http import ApiError, Request, json_response
 from .log import bind, get_logger, log_event
 
@@ -39,7 +39,21 @@ New material from elsewhere:
 - The user attaches a file in the chat, or has the file on their computer: call get_upload_link (replace=true for a
   weekly swap) and give them the link. Do NOT try to upload attached files from a code sandbox; it is usually blocked.
   The link opens the board with the upload panel ready; they drop the file there and are done.
-- prepare_slide_upload/confirm_slide_upload are only for clients with unrestricted network access (e.g. Claude Code)."""
+- prepare_slide_upload/confirm_slide_upload are only for clients with unrestricted network access (e.g. Claude Code).
+Schedules (a board = one course, one URL for the whole semester, content changes per session):
+- get_schedule shows the board's sessions (each = a workspace file + switch time, status planned/live/done/failed).
+  At each switch time the system archives the current slides+comments as PDF, puts the session's file up, opens
+  comments again and emails all workspace staff. Before the first session the board shows "coming soon".
+- To plan a semester from a syllabus: read the syllabus (read_file) and the lecture files (list_files, read_file as
+  needed), map files to sessions, then PROPOSE the schedule to the user as a table (date, time, title, file) and only
+  call set_schedule after they confirm. Conventions unless the user says otherwise:
+  * Material for a lecture goes live right AFTER the previous lecture ENDS (e.g. lectures Tue 14:00-16:00 ->
+    switch Tue 16:00), so students have it a full week before their next class. The first session goes live when the
+    user wants (ask; default: one week before the first lecture at the same time).
+  * Times are in the board's time zone (default Europe/Berlin); pass local times like 2026-10-20T16:00.
+  * Skip holidays/no-lecture weeks found in the syllabus; one session per lecture; titles like "Lecture 3: Topic".
+  * If lecture times are missing in the syllabus, ask the user instead of guessing.
+- view_file_page shows you a page of a file as an image (for scanned PDFs, diagrams, formulas)."""
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -156,10 +170,12 @@ def _get_board(user, a):
          "comments": len(s["comments"])} for i, s in enumerate(v["slides"])]}
 
 
-@tool("update_board", "Rename a board, lock it (locked = students can no longer comment or like) and/or change its "
-      "background texture.", {**BOARD, "name": S, "locked": {"type": "boolean"}, **BACKGROUND}, ("board_id",))
+@tool("update_board", "Rename a board, lock it (locked = students can no longer comment or like), change its "
+      "background texture and/or its time zone (IANA name, default Europe/Berlin).",
+      {**BOARD, "name": S, "locked": {"type": "boolean"}, **BACKGROUND, "timezone": S}, ("board_id",))
 def _update_board(user, a):
-    return boards.update_board(user, a["board_id"], a.get("name"), a.get("locked"), a.get("background"))
+    return boards.update_board(user, a["board_id"], a.get("name"), a.get("locked"), a.get("background"),
+                               a.get("timezone"))
 
 
 @tool("delete_board", "Permanently delete a board incl. slides and comments. Its URL stops working.",
@@ -299,6 +315,15 @@ def _publish_file(user, a):
                            a.get("archive", True))
 
 
+@tool("view_file_page", "Look at one page of a workspace file as an image (scanned PDFs, diagrams, formulas, layout).",
+      {**SPACE, "file_id": S, "page": {"type": "integer", "default": 1}}, ("workspace_id", "file_id"), read_only=True)
+def _view_page(user, a):
+    import base64
+    jpeg, info = library.page_image(user, a["workspace_id"], a["file_id"], a.get("page", 1))
+    return {"_mcp_content": [{"type": "image", "data": base64.b64encode(jpeg).decode(), "mimeType": "image/jpeg"},
+                             {"type": "text", "text": f"{info['file']}, page {info['page']} of {info['pages']}"}]}
+
+
 @tool("delete_file", "Delete a file from the workspace files (boards that already show it are not affected).",
       {**SPACE, "file_id": S}, ("workspace_id", "file_id"), destructive=True)
 def _delete_file(user, a):
@@ -310,6 +335,55 @@ def _delete_file(user, a):
       "find material from earlier weeks/semesters and publish it again.", BOARD, ("board_id",), read_only=True)
 def _board_history(user, a):
     return library.history(user, a["board_id"])
+
+
+# --- schedules ------------------------------------------------------------------------------
+
+SESSION_SPEC = {"type": "object", "properties": {
+    "file_id": {"type": "string", "description": "Workspace file (from list_files)"},
+    "starts_at": {"type": "string", "description": "Switch time, local to the board's time zone, e.g. 2026-10-20T16:00 "
+                                                   "(or ISO-8601 with offset)"},
+    "title": {"type": "string", "description": "e.g. 'Lecture 3: Externalities' (default: the file's title)"}},
+    "required": ["file_id", "starts_at"]}
+
+
+@tool("get_schedule", "The board's sessions (planned/live/done) with local times, plus the board's time zone and the "
+      "current local time.", BOARD, ("board_id",), read_only=True)
+def _get_schedule(user, a):
+    return schedule.get_schedule(user, a["board_id"])
+
+
+@tool("set_schedule", "Replace all PLANNED sessions of a board with this list (live/done sessions stay as history). "
+      "Only call after the user confirmed the proposed schedule.",
+      {**BOARD, "sessions": {"type": "array", "items": SESSION_SPEC}}, ("board_id", "sessions"))
+def _set_schedule(user, a):
+    return schedule.set_schedule(user, a["board_id"], a.get("sessions"))
+
+
+@tool("add_session", "Add one planned session to a board's schedule.", {**BOARD, **SESSION_SPEC["properties"]},
+      ("board_id", "file_id", "starts_at"))
+def _add_session(user, a):
+    return schedule.add_session(user, a["board_id"], {k: a.get(k) for k in ("file_id", "starts_at", "title")})
+
+
+@tool("update_session", "Change time, title or file of a planned session.",
+      {**BOARD, "session_id": S, **SESSION_SPEC["properties"]}, ("board_id", "session_id"))
+def _update_session(user, a):
+    return schedule.update_session(user, a["board_id"], a["session_id"], a.get("starts_at"), a.get("title"),
+                                   a.get("file_id"))
+
+
+@tool("remove_session", "Remove a planned (or past) session from a board's schedule.", {**BOARD, "session_id": S},
+      ("board_id", "session_id"), destructive=True)
+def _remove_session(user, a):
+    schedule.remove_session(user, a["board_id"], a["session_id"])
+    return {"ok": True}
+
+
+@tool("set_notifications", "Switch the 'board changed' emails on/off for the current user and this board.",
+      {**BOARD, "enabled": {"type": "boolean"}}, ("board_id", "enabled"))
+def _set_notifications(user, a):
+    return notify.set_enabled(user, a["board_id"], bool(a.get("enabled")))
 
 
 # --- export & archive -----------------------------------------------------------------------
@@ -360,6 +434,8 @@ def _call_tool(user: dict, params: dict) -> dict:
     try:
         result = entry["fn"](user, args)
         log_event(logger, logging.INFO, "mcp tool call", tool=name, ok=True)
+        if isinstance(result, dict) and "_mcp_content" in result:  # e.g. images
+            return {"content": result["_mcp_content"], "isError": False}
         text = json.dumps(result, default=str, ensure_ascii=False, indent=1).replace('"space_id"', '"workspace_id"')
         return {"content": [{"type": "text", "text": text}],
                 "isError": False}

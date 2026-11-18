@@ -2,6 +2,7 @@
 import logging
 
 from . import boards, export, library, media
+from . import notify as notify_mod
 from .http import ApiError
 from .log import get_logger, log_event
 from .util import new_id, safe_filename
@@ -35,7 +36,7 @@ def _check_mode(user: dict, board_id: str, mode) -> str:
 
 
 def _ingest(user: dict, board_id: str, blobs: list[tuple[bytes, str]], mode: str, archive: bool,
-            source_files: list[dict] | None = None) -> dict:
+            source_files: list[dict] | None = None, notify: bool = True) -> dict:
     """Render files to slides and put them on the board. PDFs are also kept in the workspace files
     (deduplicated) and the event is recorded in the board history."""
     pages = []
@@ -65,6 +66,9 @@ def _ingest(user: dict, board_id: str, blobs: list[tuple[bytes, str]], mode: str
         if f.get("file_id"):
             library.mark_published(board["space_id"], f["file_id"], board)
     result["files"] = [{"file_id": f.get("file_id"), "name": f.get("name")} for f in source_files]
+    if notify and mode == "replace":
+        names = ", ".join(f.get("title") or f.get("name") or "?" for f in source_files)
+        notify_mod.board_changed(board_id, f"New material: {names}", f"Replaced by {user['name']}.", actor=user)
     log_event(logger, logging.INFO, "slides ingested", board_id=board_id, mode=mode,
               added=len(result["added_slides"]), removed=result.get("removed_slides", 0))
     return result

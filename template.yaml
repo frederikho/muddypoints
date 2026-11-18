@@ -118,6 +118,13 @@ Resources:
           AllowMethods: ["*"]
           AllowHeaders: [content-type, authorization, x-anon-token, mcp-protocol-version, mcp-session-id]
           MaxAge: 3600
+      Events:
+        Scheduler:                # runs due board switches (schedule.run_due); page loads also check
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(5 minutes)
+            Input: '{"source": "muddypoints.scheduler"}'
+            RetryPolicy: { MaximumRetryAttempts: 0 }
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }
         - S3CrudPolicy: { BucketName: !Ref MediaBucket }

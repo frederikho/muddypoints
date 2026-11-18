@@ -83,6 +83,34 @@ def update(pk: str, sk: str, fields: dict, must_exist: bool = True) -> dict:
     return clean(aws.table().update_item(**kwargs)["Attributes"])
 
 
+def remove_attrs(pk: str, sk: str, attrs: list[str]) -> None:
+    aws.table().update_item(Key={"PK": pk, "SK": sk},
+                            UpdateExpression="REMOVE " + ", ".join(f"#a{i}" for i in range(len(attrs))),
+                            ExpressionAttributeNames={f"#a{i}": a for i, a in enumerate(attrs)})
+
+
+def update_if(pk: str, sk: str, fields: dict, attr: str, expected) -> bool:
+    """Conditional update (attr == expected). Returns False if the condition failed (e.g. lost a race)."""
+    names, values, sets = {"#c": attr}, {":c": expected}, []
+    for i, (k, v) in enumerate(fields.items()):
+        names[f"#f{i}"], values[f":v{i}"] = k, v
+        sets.append(f"#f{i} = :v{i}")
+    try:
+        aws.table().update_item(Key={"PK": pk, "SK": sk}, UpdateExpression="SET " + ", ".join(sets),
+                                ConditionExpression="#c = :c", ExpressionAttributeNames=names,
+                                ExpressionAttributeValues=values)
+        return True
+    except ClientError as err:
+        if is_conditional_failure(err):
+            return False
+        raise
+
+
+def query_gsi1_until(pk: str, upper_sk: str) -> list[dict]:
+    """GSI1 items with GSI1SK <= upper_sk."""
+    return _paginate(IndexName="GSI1", KeyConditionExpression=Key("GSI1PK").eq(pk) & Key("GSI1SK").lte(upper_sk))
+
+
 def increment(pk: str, sk: str, field: str, by: int) -> None:
     try:
         aws.table().update_item(
