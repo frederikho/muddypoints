@@ -231,3 +231,5 @@ button.block { width: 100%; justify-content: center; }
 .mini-board:hover .mini-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mini-name { font-size: .7rem; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .mini-more { align-self: center; font-size: .8rem; font-weight: 700; color: var(--muted); padding: 0 4px; height: 40px; display: flex; align-items: center; }
+.steps-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-size: .9em; }

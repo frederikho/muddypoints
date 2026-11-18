@@ -340,7 +340,14 @@ async function accountView() {
     el("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(300px,1fr))" }, profile, pwForm),
     el("div", { class: "card stack", style: "margin-top:16px" },
       el("h2", {}, "Claude / MCP access"),
-      el("p", { class: "muted small" }, "Create a key, then in Claude (Settings → Connectors → Add custom connector) paste the connector URL. Claude can then manage your spaces and boards with your permissions. Treat the URL like a password."),
+      el("p", { class: "muted small" }, "Connect Claude to Muddy Points to manage your spaces and boards by chatting, e.g. “export this week's comments” or “put up the slides for lecture 5”. Claude acts with your permissions."),
+      el("ol", { class: "small steps-list" },
+        el("li", {}, el("strong", {}, "Create a key"), " below and copy the connector URL. It is shown only once."),
+        el("li", {}, "In Claude (claude.ai or desktop app) open ", el("strong", {}, "Settings → Connectors → Add custom connector"), "."),
+        el("li", {}, "Name: ", el("code", {}, "Muddy Points"), ". URL: paste the connector URL. Authentication: ", el("strong", {}, "No authentication"),
+          " (the key is part of the URL). Leave request headers empty. Click ", el("strong", {}, "Add"), "."),
+        el("li", {}, "In a new chat, switch on ", el("strong", {}, "Muddy Points"), " in the + / tools menu and ask: “Which spaces do I have in Muddy Points?”")),
+      el("p", { class: "muted small" }, "Treat the URL like a password. If it leaks or you lose it, revoke the key here and create a new one."),
       keyForm, newKeyBox,
       api_keys.length ? el("table", {}, el("tbody", {}, keyRows)) : el("p", { class: "muted small" }, "No keys yet.")));
 }

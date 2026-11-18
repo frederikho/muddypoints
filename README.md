@@ -97,17 +97,47 @@ Without `MAIL_FROM` the app still works, but emails are only written to the logs
 
 Alternative: Amazon SES. Verify the sender in SES (same region), request production access (otherwise SES only sends to verified addresses), set only `MAIL_FROM`, and leave `BREVO_API_KEY` unset.
 
-### 5. Connect Claude (MCP)
+### 5. Connect Claude (MCP): manage boards by chatting
 
-Each admin does this once for themselves:
+Each admin does this once, for their own account. Afterwards you can say things like *"Export this week's comments of Lecture 3"* or *"Replace the slides of Lecture 4 with this PDF: <link>"*.
 
-1. In the web app open **your name (top right) → Claude / MCP access → Create key**, then copy the connector URL (`https://….lambda-url.….on.aws/mcp/pk_…`). It is shown only once.
-2. In Claude (web or desktop) open **Settings → Connectors → Add custom connector**, paste the URL, and leave OAuth empty.
-3. Ask Claude something like *"Which boards do I have?"*.
+**a) Create your personal key in Muddy Points**
+1. Log in, click **your name** (top right) and open **Claude / MCP access**.
+2. Enter a label (e.g. *Claude*) and click **Create key**.
+3. Copy the **connector URL** that appears (`https://….lambda-url.eu-central-1.on.aws/mcp/pk_…`). It is shown **only once**. If you lose it, just create a new key.
 
-Claude acts with **your** permissions, so editors can't delete via Claude either. Treat the URL like a password; you can revoke it on the same page.
+**b) Add the connector in Claude** (claude.ai or the desktop app)
+1. Open **Settings → Connectors** (bottom-left profile menu → Settings) and click **Add custom connector**.
+2. **Name:** `Muddy Points`
+3. **URL:** paste the connector URL from step a.
+4. **Authentication:** choose **No authentication** (it is detected automatically; the key is already inside the URL). Leave *request headers* empty.
+5. Click **Add**.
 
-For code changes, also connect the GitHub repository in Claude. Anything Claude pushes to `main` is tested and deployed automatically. `CLAUDE.md` tells Claude how the project works.
+**c) Use it in a chat**
+1. Start a new chat. In the **+** / tools menu under *Connectors*, make sure **Muddy Points** is switched on.
+2. Ask: *"Which spaces and boards do I have in Muddy Points?"* The first time, Claude may ask permission to use the tools; allow it.
+
+Good to know:
+- Claude acts with **your** permissions. Editors can't delete things via Claude either.
+- Treat the URL like a password. Revoke it any time on the same page (Claude / MCP access → **Revoke**) and create a new one.
+- Nothing happens? Ask an owner to check the logs, or ask Claude *"show the Muddy Points errors of the last hour"* once the connector works for someone.
+
+### 6. Change the app with Claude (claude.ai/code)
+
+Admins can change the app itself (layout, features, texts) by describing the change to Claude. Claude edits the code, runs the tests and opens a **pull request**. Once you merge it on GitHub, it is live a few minutes later.
+
+**One-time setup (per admin)**
+1. You need a GitHub account with **write access** to this repository (the repo owner adds you under *Settings → Collaborators*) and a Claude plan that includes Claude Code.
+2. **Connect GitHub to Claude:** in Claude click your profile icon (bottom left) → **Settings → Connectors**, find **GitHub**, click **Connect**, and confirm with **Authorize** on the GitHub page.
+3. Open **claude.ai/code**. If asked, **install the Claude GitHub App** and give it access to this repository (it lets Claude push branches and open pull requests).
+
+**Making a change**
+1. On claude.ai/code start a session on this repository and describe what you want, e.g. *"Show the date next to each comment"*.
+2. Claude works in a cloud sandbox (test dependencies install automatically), runs the tests and opens a pull request with a plain-language summary.
+3. On GitHub, open the pull request, wait for the green ✓ (tests), check the summary, then click **Merge pull request**.
+4. A few minutes later it's live (watch it under the repo's **Actions** tab). Check it in the browser as described in the pull request.
+
+If something goes wrong, ask Claude on claude.ai/code to *"revert the last change"*. It opens a pull request that undoes it; merge that. See *Rolling back code* below.
 
 ---
 
