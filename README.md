@@ -120,12 +120,11 @@ Each admin does this once, for their own account. Afterwards you can say things 
 1. Start a new chat. In the **+** / tools menu under *Connectors*, make sure **Muddy Points** is switched on.
 2. Ask: *"Which spaces and boards do I have in Muddy Points?"* The first time, Claude may ask permission to use the tools; allow it.
 
-**d) New slides from a chat: three ways, simplest first**
-- **Attach the PDF and ask** (*"Replace ERE with this one"*). This works directly once you have done the one-time step below.
-- **Without that step:** Claude answers with an **upload link**. Click it, log in if asked, and the board opens with the upload panel ready. Drop the PDF there (choose *Replace all slides* to swap the material).
-- **Share link:** give Claude a Google Drive / Dropbox / public link to the PDF instead of attaching it.
+**d) New slides via Claude**
+- **PDF on your computer or attached in the chat:** say e.g. *"Replace the ERE slides with the new lecture"*. Claude replies with an **upload link**. Click it, log in if asked, and drop the PDF into the panel that opens. For a replacement, *Replace all slides* is already selected, and the old slides and comments are archived as PDF first.
+- **PDF already online:** give Claude a Google Drive / Dropbox / public link (*"Replace ERE with this: <link>"*). Claude loads it directly, with no clicking needed.
 
-*One-time step (per admin, 30 s):* Claude uploads attachments from its code sandbox, which only reaches allowed domains. In Claude's **Settings**, in the code execution / network section, add this domain to the **allowed domains**: `muddypoints-mediabucket-r2t7zolagqqg.s3.eu-central-1.amazonaws.com`. It is also shown, with a copy button, on the Muddy Points account page under Claude / MCP access. On Team/Enterprise plans an admin may have to do this.
+(Claude can't send attached files to Muddy Points from a chat by itself, because its sandbox blocks outside servers. That's why it gives you the link.)
 
 Good to know:
 - Claude acts with **your** permissions. Editors can't delete things via Claude either.

@@ -226,16 +226,18 @@ function renderPanel() {
 }
 
 // Links like board.html?b=<id>#upload (e.g. handed out by Claude) open the upload panel directly.
-function openUploadFromLink() {
+function openUploadFromLink(replace = false) {
   if (!state.my_role) {
     if (!session.token) {
-      location.href = `./?next=${encodeURIComponent(`board.html${location.search}#upload`)}`;
+      location.href = `./?next=${encodeURIComponent(`board.html${location.search}${location.hash}`)}`;
     } else {
       toast("Only members of this board's space can upload.", "error");
     }
     return;
   }
   setPanel(true);
+  const modeSelect = panel.querySelector("select");
+  if (replace && modeSelect?.querySelector("option[value=replace]")) modeSelect.value = "replace";
   const btn = panel.querySelector("button.primary");
   btn?.focus();
   btn?.classList.add("pulse");
@@ -297,7 +299,7 @@ async function init() {
     const identity = await ensureIdentity();
     anonToken = identity?.token || null;
     await refresh(true);
-    if (location.hash === "#upload") openUploadFromLink();
+    if (location.hash === "#upload" || location.hash === "#upload-replace") openUploadFromLink(location.hash === "#upload-replace");
     else if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
   } catch (e) {
     document.getElementById("board-title").textContent = e.status === 404 ? "Board not found" : "Could not load board";

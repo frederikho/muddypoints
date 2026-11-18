@@ -61,7 +61,8 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 | `list_comments`, `delete_comment`* | comments |
 | `import_slides_from_url` (mode append/replace) | load a PDF or image from a URL (Drive and Dropbox share links work) |
 | `replace_board_material`* | weekly rotation: archive PDF, clear, import new material from URL |
-| `prepare_slide_upload` → PUT → `confirm_slide_upload` | direct upload via presigned S3 URL |
+| `get_upload_link` (replace) | link that opens the board's upload panel (`#upload` / `#upload-replace`); **the way to handle files attached in claude.ai chats** (their sandbox can't reach S3) |
+| `prepare_slide_upload` → PUT → `confirm_slide_upload` | direct upload via presigned S3 URL, only for clients with open network (e.g. Claude Code) |
 | `reorder_slides`, `delete_slide`*, `clear_board`* | slide management |
 | `export_board_pdf`, `list_board_archives` | PDF of slides and comments (1 h download links) |
 | `get_logs` (minutes, level, contains, limit) | read CloudWatch logs (owners only) |
@@ -72,7 +73,7 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 
 **Typical admin requests and how to handle them**
 - "Export the comments for OLAT": `list_spaces` → `list_boards` → `export_board_pdf`, then give the user the `download_url`.
-- "New material for next week": ask for a URL to the PDF, then `replace_board_material`. Say that the old state was archived.
+- "New material for next week": with a share link → `replace_board_material`; with an attached/local file → `get_upload_link(replace=true)` and hand the user the link. Say that the old state is archived.
 - "Something is broken": `get_logs(level="ERROR", minutes=…)`. Each line has a `request_id`; use `get_logs(contains="<request_id>")` to see the whole request.
 
 ## Logging & debugging

@@ -155,3 +155,19 @@ def test_transport_details(mcp, owner):
     assert Client().request("HEAD", f"/mcp/{key}", token=None)[0] == 405
     assert Client().request("OPTIONS", f"/mcp/{key}", token=None)[0] == 204
     assert Client().request("DELETE", f"/mcp/{key}", token=None)[0] == 204
+
+
+def test_get_upload_link(mcp, client, owner):
+    res, err = mcp.call("get_upload_link", board_id=owner["board_id"])
+    assert not err and res["upload_link"].endswith(f"board.html?b={owner['board_id']}#upload") and res["mode"] == "append"
+    res, err = mcp.call("get_upload_link", board_id=owner["board_id"], replace=True)
+    assert not err and res["upload_link"].endswith("#upload-replace") and "archived" in res["tell_the_user"]
+    # editors may only get an append link
+    bob = Client()
+    register(bob, email="bob@uni.example", name="Bob")
+    client.post(f"/api/spaces/{owner['space_id']}/members", {"email": "bob@uni.example"})
+    _, key = bob.post("/api/me/api-keys", {"label": "c"})
+    call = lambda args: Client().request("POST", f"/mcp/{key['key']}", token=None, raw=json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_upload_link", "arguments": args}}))[1]
+    assert not call({"board_id": owner["board_id"]})["result"]["isError"]
+    assert call({"board_id": owner["board_id"], "replace": True})["result"]["isError"]

@@ -24,11 +24,13 @@ Students comment anonymously on slides via the public board URL.
 Typical weekly workflow for a board: export_board_pdf (save the comments for OLAT) and then
 replace_board_material with the new lecture PDF (this archives a PDF of the old comments automatically).
 Owners can delete things; editors can do everything else. IDs come from list_* tools.
-New material: prefer import_slides_from_url / replace_board_material when the user gives a link (Google Drive and
-Dropbox share links work). For a file attached in the chat use prepare_slide_upload, PUT the bytes from your sandbox,
-then confirm_slide_upload. If the PUT is blocked by your network policy, give the user the `upload_page_url` from
-prepare_slide_upload (opens the board with the upload panel; they drop the file there). Mention that adding
-`upload_host` to the allowed domains in their Claude settings makes chat attachments work directly next time."""
+New material:
+- The user gives a link (Google Drive/Dropbox share link or any public URL): use replace_board_material (weekly swap)
+  or import_slides_from_url (add).
+- The user attaches a file in the chat, or has the file on their computer: call get_upload_link (replace=true for a
+  weekly swap) and give them the link. Do NOT try to upload attached files from a code sandbox; it is usually blocked.
+  The link opens the board with the upload panel ready; they drop the file there and are done.
+- prepare_slide_upload/confirm_slide_upload are only for clients with unrestricted network access (e.g. Claude Code)."""
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -189,9 +191,28 @@ def _replace(user, a):
     return uploads.import_from_url(user, a["board_id"], a.get("url"), "replace", True)
 
 
+@tool("get_upload_link",
+      "Link for the user to upload a PDF/images to a board themselves (opens the board with the upload panel ready). "
+      "Use this whenever the user attaches a file in the chat or wants to upload a file from their computer.",
+      {**BOARD, "replace": {"type": "boolean", "default": False,
+                            "description": "Preselect 'Replace all slides' (weekly swap; owners only, old slides and "
+                                           "comments are archived as PDF first)"}}, ("board_id",), read_only=True)
+def _upload_link(user, a):
+    board, role = boards.require_board(user, a["board_id"], "editor")
+    replace = bool(a.get("replace"))
+    if replace and role != "owner":
+        raise ApiError(403, "forbidden", "Only owners can replace all slides; use replace=false to add slides")
+    url = boards.board_url(board["board_id"]) + ("#upload-replace" if replace else "#upload")
+    return {"upload_link": url, "board": board["name"], "mode": "replace" if replace else "append",
+            "tell_the_user": f"Open this link, log in if asked, and drop your PDF into the upload panel: {url}"
+                             + (" ('Replace all slides' is preselected; the current slides and comments are "
+                                "archived as PDF first.)" if replace else "")}
+
+
 @tool("prepare_slide_upload",
-      "Step 1 of a direct upload: returns presigned S3 PUT URLs (valid 1h). PUT each file's bytes with the given "
-      "Content-Type header, then call confirm_slide_upload with the upload_keys.",
+      "Only for clients with unrestricted network access (e.g. Claude Code), NOT for claude.ai chat sandboxes - use "
+      "get_upload_link there. Step 1 of a direct upload: returns presigned S3 PUT URLs (valid 1h). PUT each file's "
+      "bytes with the given Content-Type header, then call confirm_slide_upload with the upload_keys.",
       {**BOARD, "files": {"type": "array", "items": {"type": "object", "properties": {
           "filename": S, "content_type": {"type": "string", "description": "e.g. application/pdf, image/png"}},
           "required": ["filename", "content_type"]}}}, ("board_id", "files"))
