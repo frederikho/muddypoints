@@ -10,6 +10,9 @@ const list = document.getElementById("file-list");
 const summary = document.getElementById("summary");
 const PARALLEL_UPLOADS = 3;
 const counts = { added: 0, exists: 0, failed: 0 };
+// Tell other open Muddy Points tabs (workspace page, board panel) to refresh their file lists.
+const channel = "BroadcastChannel" in window ? new BroadcastChannel("muddypoints") : null;
+const announce = () => channel?.postMessage({ type: "files-changed" });
 
 function row(file) {
   const status = el("span", { class: "file-status muted small" }, "waiting…");
@@ -69,7 +72,10 @@ async function handle(files) {
   }
   // 3. upload the unknown ones (a few in parallel), confirm each
   const queue = plan.map((p, i) => ({ p, i }));
-  const finish = (i, text, kind, key) => { rows[i].progress(null); rows[i].set(text, kind); counts[key] += 1; updateSummary(total); };
+  const finish = (i, text, kind, key) => {
+    rows[i].progress(null); rows[i].set(text, kind); counts[key] += 1; updateSummary(total);
+    if (key === "added") announce();
+  };
   async function worker() {
     while (queue.length) {
       const { p, i } = queue.shift();

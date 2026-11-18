@@ -227,6 +227,12 @@ async function loadNotifications() {
   } catch (e) { box.replaceChildren(el("p", { class: "alert" }, e.message)); }
 }
 
+if ("BroadcastChannel" in window) {
+  new BroadcastChannel("muddypoints").onmessage = (e) => {
+    if (e.data?.type === "files-changed" && panel.classList.contains("open")) { loadFiles(); loadSchedule(); }
+  };
+}
+
 function loadPanelData() {
   loadArchives(); loadFiles(); loadHistory(); loadSchedule(); loadNotifications();
 }

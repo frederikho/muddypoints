@@ -285,13 +285,28 @@ function filesSection(spaceId, files, boards, refresh) {
       }, "danger"),
     ], "File actions"))));
   const uploadBtn = el("button", { class: "ghost sm", type: "button", onclick: () => openUploadLink(spaceId) }, "+ Upload files");
-  return [
+  return el("section", { id: "files-section", "data-space": spaceId },
     el("div", { class: "section-title" }, el("h2", { style: "margin:0" }, "Files"), uploadBtn),
     el("p", { class: "muted small", style: "margin-top:-6px" }, "Lecture PDFs and syllabi shared by everyone in this workspace. Kept permanently, so you can reuse them next semester."),
     files.length ? el("div", { class: "card", style: "padding:4px 12px" }, el("table", {}, el("tbody", {}, rows)))
-      : el("p", { class: "muted" }, "No files yet. PDFs you put on a board are added here automatically, or use “+ Upload files”."),
-  ];
+      : el("p", { class: "muted" }, "No files yet. PDFs you put on a board are added here automatically, or use “+ Upload files”."));
 }
+
+// Re-render only the Files section (keeps open menus/inputs elsewhere on the page untouched).
+async function reloadFiles() {
+  const box = document.getElementById("files-section");
+  if (!box || document.querySelector("#files-section .popover:not(.hidden), .dialog-backdrop")) return;
+  const spaceId = box.dataset.space;
+  try {
+    const [{ boards }, { files }] = await Promise.all([api("GET", `/api/spaces/${spaceId}`), api("GET", `/api/spaces/${spaceId}/files`)]);
+    if (document.getElementById("files-section") !== box) return; // user navigated away meanwhile
+    box.replaceWith(filesSection(spaceId, files, boards, () => spaceView(spaceId).catch(showError)));
+  } catch { /* ignore: next refresh will try again */ }
+}
+if ("BroadcastChannel" in window) {
+  new BroadcastChannel("muddypoints").onmessage = (e) => { if (e.data?.type === "files-changed") reloadFiles(); };
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reloadFiles(); });
 
 async function spaceView(spaceId) {
   const [{ space, boards }, members, { files }] = await Promise.all([
@@ -391,7 +406,7 @@ async function spaceView(spaceId) {
     createBoard.form,
     boards.length ? el("div", { class: "grid", style: "margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))" }, boardCards)
       : el("p", { class: "muted" }, "No boards yet."),
-    ...filesSection(spaceId, files, boards, refresh),
+    filesSection(spaceId, files, boards, refresh),
     el("div", { class: "section-title" }, el("h2", {}, "Members")),
     inviteForm,
     el("div", { class: "card", style: "margin-top:12px;padding:4px 12px" }, el("table", {}, el("tbody", {}, memberRows, inviteRows))));
