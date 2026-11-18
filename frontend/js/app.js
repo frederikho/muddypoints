@@ -244,11 +244,11 @@ async function spacesView() {
 
 // --- operator view: every workspace on the platform (read-only; only for SUPERADMIN_EMAILS) ---------
 function feedbackSection(items, reload) {
-  const label = { web: "Website", claude: "via Claude" };
+  const label = (f) => f.source === "web" ? "Website" : `via ${f.assistant || "AI assistant"}`;
   const card = (f) => el("div", { class: `card stack feedback-item ${f.done ? "is-done" : ""}` },
     el("div", { class: "row", style: "justify-content:space-between" },
       el("div", { class: "row", style: "gap:6px" },
-        el("span", { class: `badge ${f.source === "claude" ? "owner" : ""}` }, label[f.source] || f.source),
+        el("span", { class: `badge ${f.source !== "web" ? "owner" : ""}` }, label(f)),
         f.category ? el("span", { class: "badge" }, f.category.replace("_", " ")) : "",
         el("span", { class: "muted small" }, fmtDate(f.created_at), " · ", f.user_name || f.email || (f.user_id ? "logged-in user" : "anonymous"))),
       el("label", { class: "check small" }, el("input", { type: "checkbox", checked: f.done, onchange: (e) => busy(null, async () => {
