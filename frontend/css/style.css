@@ -283,3 +283,22 @@ label.check { display: flex; gap: 8px; align-items: center; font-weight: 500; fo
 .files-toolbar { margin: 4px 0 10px; }
 .files-toolbar .files-search { flex: 1; min-width: 180px; width: auto; }
 .pager { margin-top: 8px; }
+
+/* --- comment threads --- */
+.thread { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.thread:last-child { border-bottom: none; }
+.thread .comment { border-bottom: none; }
+.comment.reply { margin-left: 18px; padding: 6px 0 6px 10px; border-left: 2px solid var(--border); }
+.comment.is-hidden { opacity: .55; }
+.comment.is-pinned > .text { font-weight: 500; }
+.cbadge { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: .72rem; font-weight: 600; background: var(--surface-2); color: var(--muted); }
+.cbadge.ok { background: #e7f6ee; color: var(--ok); }
+.cbadge.pin { background: var(--accent-soft); color: var(--accent); }
+.cbadge.hid { background: var(--danger-soft); color: var(--danger); }
+.status-btn { opacity: .5; padding: 2px 6px; }
+.status-btn.on { opacity: 1; background: var(--accent-soft); }
+.reply-form { margin: 4px 0 8px 18px; display: flex; flex-direction: column; gap: 6px; }
+.reply-form textarea { min-height: 48px; }
+@media (prefers-color-scheme: dark) { .cbadge.ok { background: #13322a; } }
+.session-add-file { width: auto; padding: 2px 6px; font-size: .8rem; color: var(--muted); }
+.session-file a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }

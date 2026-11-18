@@ -79,12 +79,14 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 | `list_workspaces`, `create_workspace`, `rename_workspace`, `delete_workspace`* | workspaces |
 | `list_members`, `invite_member`, `set_member_role`*, `remove_member` (owners only for owners) | sharing |
 | `list_boards`, `create_board`, `get_board`, `update_board` (name, locked, background), `delete_board` | boards (backgrounds: `boards.BACKGROUNDS`, CSS `.bg-<id>` in `style.css`, picker list in `api.js`; keep all three in sync) |
-| `list_comments`, `delete_comment` | comments |
+| `list_comments`, `delete_comment`, `reply_to_comment`, `set_comment_status` (answered/pinned/hidden) | comments; replies are threaded one level deep and appear **in the user's name** — Claude only replies when the user explicitly asks |
+| `get_archived_comments` (limit, offset, include_current) | comments of earlier materials as data (stored as JSON next to each archive PDF since this feature exists) |
 | `import_slides_from_url` (mode append/replace) | load a PDF or image from a URL (Drive and Dropbox share links work) |
 | `replace_board_material` | weekly rotation: archive PDF, clear, import new material from URL |
 | `create_upload_link` (hours, note) | **no-login upload page** (`drop.html#<token>`) for a workspace: user drags PDFs in → workspace files. The standard way to receive files from users |
-| `list_files`, `read_file` (from_page, to_page, max_chars), `publish_file` (mode), `delete_file` | workspace files: overview (title, pages, outline, `published_to`), paginated text, put on a board |
-| `get_schedule`, `set_schedule` (replaces planned), `add_session`, `update_session`, `remove_session` | board schedule (sessions with local times); conventions are in the server instructions in `mcp.py` |
+| `import_file_from_url`, `update_file_metadata` (lecture_number, topic, semester, tags, notes), `view_file_pages` (≤12 pages as one image) | more file tools |
+| `list_files` (query, semester, tag), `read_file` (from_page, to_page, max_chars), `publish_file` (mode, default replace), `delete_file` | workspace files: overview (title, pages, outline, `published_to`), paginated text, put on a board |
+| `get_schedule`, `set_schedule` (replaces planned; `dry_run`; warns about past times), `add_session`, `update_session`, `remove_session`, `run_session_now` — sessions take `file_ids` (several files in order) | board schedule (sessions with local times); conventions are in the server instructions in `mcp.py` |
 | `set_notifications` | per-board change emails on/off for the current user |
 | `view_file_page` | a PDF page as an image (scanned slides, diagrams) |
 | `get_board_history` | what was put on a board when (file ids) → reuse material from earlier weeks/semesters |

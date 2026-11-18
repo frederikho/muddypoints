@@ -33,10 +33,28 @@ function likeButton(item, onToggle) {
   return btn;
 }
 
-function commentNode(slide, c) {
-  const canDelete = c.mine || !!state.my_role; // author or any workspace member
-  return el("div", { class: "comment" },
-    el("div", { class: `who ${c.is_staff ? "staff" : ""}` }, c.author_name, c.is_staff ? " · staff" : ""),
+const replyDrafts = new Map(); // comment_id -> draft text of an open reply form (survives auto-refresh)
+
+const countComments = (slide) => slide.comments.reduce((n, c) => n + 1 + (c.replies || []).length, 0);
+
+function commentNode(slide, c, parent = null) {
+  const staff = !!state.my_role;
+  const canDelete = c.mine || staff; // author or any workspace member
+  const patch = (fields) => busy(null, async () => {
+    const { comment } = await api("PATCH", `/api/boards/${boardId}/comments/${c.comment_id}`, fields);
+    Object.assign(c, comment); renderComments(slide);
+  });
+  const toggle = (field, on, offTitle, onTitle, icon) => el("button", {
+    class: `ghost sm status-btn ${on ? "on" : ""}`, type: "button", title: on ? onTitle : offTitle,
+    onclick: () => patch({ [field]: !on }) }, icon);
+  const badges = [
+    c.pinned && el("span", { class: "cbadge pin", title: "Pinned by staff" }, "📌 pinned"),
+    c.answered && el("span", { class: "cbadge ok", title: "Answered by staff" }, "✓ answered"),
+    c.hidden && el("span", { class: "cbadge hid", title: "Hidden from students" }, "hidden"),
+  ];
+  const canReply = !parent && (!state.board.locked || staff);
+  const node = el("div", { class: `comment ${parent ? "reply" : ""} ${c.hidden ? "is-hidden" : ""} ${c.pinned ? "is-pinned" : ""}` },
+    el("div", { class: `who ${c.is_staff ? "staff" : ""}` }, c.author_name, c.is_staff ? " · staff" : "", ...badges),
     el("div", { class: "text" }, c.text),
     el("div", { class: "meta" },
       el("span", { title: new Date(c.created_at).toLocaleString() }, timeAgo(c.created_at)),
@@ -44,11 +62,47 @@ function commentNode(slide, c) {
         const r = await call("POST", `/api/boards/${boardId}/likes`, { comment_id: c.comment_id });
         Object.assign(c, r); renderComments(slide);
       }),
-      canDelete && el("button", { class: "ghost sm danger", onclick: async () => {
-        if (!confirm("Delete this comment?")) return;
+      canReply && el("button", { class: "ghost sm", type: "button", onclick: () => {
+        if (!replyDrafts.has(c.comment_id)) replyDrafts.set(c.comment_id, "");
+        renderComments(slide);
+        slideNodes.get(slide.slide_id)?.comments.querySelector(`[data-reply-for="${c.comment_id}"] textarea`)?.focus();
+      } }, "Reply"),
+      staff && !parent && toggle("answered", c.answered, "Mark as answered", "Mark as not answered", "✓"),
+      staff && !parent && toggle("pinned", c.pinned, "Pin to the top of this slide", "Unpin", "📌"),
+      staff && toggle("hidden", c.hidden, "Hide from students", "Show to students again", "🙈"),
+      canDelete && el("button", { class: "ghost sm danger", type: "button", onclick: async () => {
+        if (!confirm(parent ? "Delete this reply?" : "Delete this comment (and its replies)?")) return;
         await call("DELETE", `/api/boards/${boardId}/comments/${c.comment_id}`).catch(showError);
-        slide.comments = slide.comments.filter((x) => x.comment_id !== c.comment_id); renderComments(slide);
+        if (parent) parent.replies = parent.replies.filter((x) => x.comment_id !== c.comment_id);
+        else slide.comments = slide.comments.filter((x) => x.comment_id !== c.comment_id);
+        renderComments(slide);
       } }, "Delete")));
+  if (parent) return node;
+  const replies = (c.replies || []).map((r) => commentNode(slide, r, c));
+  const wrap = el("div", { class: "thread" }, node, ...replies);
+  if (replyDrafts.has(c.comment_id)) {
+    const ta = el("textarea", { rows: 2, maxlength: 2000, placeholder: staff ? "Your answer (shown in your name)…" : "Your reply…",
+      oninput: (e) => replyDrafts.set(c.comment_id, e.target.value) });
+    ta.value = replyDrafts.get(c.comment_id);
+    const form = el("form", { class: "reply-form", "data-reply-for": c.comment_id }, ta,
+      el("div", { class: "row", style: "justify-content:flex-end" },
+        el("button", { class: "ghost sm", type: "button", onclick: () => { replyDrafts.delete(c.comment_id); renderComments(slide); } }, "Cancel"),
+        el("button", { class: "primary sm", type: "submit" }, "Reply")));
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      busy(form.querySelector("button[type=submit]"), async () => {
+        if (!ta.value.trim()) return;
+        const { comment } = await call("POST", `/api/boards/${boardId}/comments`, { text: ta.value, parent_id: c.comment_id });
+        (c.replies ||= []).push(comment);
+        if (staff) c.answered = true;
+        replyDrafts.delete(c.comment_id);
+        renderComments(slide);
+      });
+    });
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(); } });
+    wrap.append(form);
+  }
+  return wrap;
 }
 
 function renderComments(slide) {
@@ -56,14 +110,19 @@ function renderComments(slide) {
   if (!node) return;
   const list = node.comments;
   const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 10;
+  const focused = document.activeElement?.closest?.("[data-reply-for]")?.dataset.replyFor;
   list.replaceChildren(...(slide.comments.length
     ? slide.comments.map((c) => commentNode(slide, c))
     : [el("p", { class: "muted small" }, state.board.locked
       ? "Comments are closed."
       : "No questions yet. Something unclear? Ask here — it's anonymous.")]));
-  if (atBottom) list.scrollTop = list.scrollHeight;
+  if (focused) {
+    const ta = list.querySelector(`[data-reply-for="${focused}"] textarea`);
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  } else if (atBottom) list.scrollTop = list.scrollHeight;
   node.likeBtn.replaceWith(node.likeBtn = slideLikeButton(slide));
-  node.count.textContent = `${slide.comments.length} comment${slide.comments.length === 1 ? "" : "s"}`;
+  const n = countComments(slide);
+  node.count.textContent = `${n} comment${n === 1 ? "" : "s"}`;
 }
 
 function slideLikeButton(slide) {
@@ -191,12 +250,25 @@ async function loadSchedule() {
         ? el("input", { type: "datetime-local", value: toLocalInput(x.starts_at), class: "session-time", onchange: (e) => busy(null, async () => {
           await api("PATCH", `/api/boards/${boardId}/sessions/${x.session_id}`, { starts_at: fromLocalInput(e.target.value) }); reload(); }) })
         : el("span", { class: "small" }, new Date(x.starts_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+      const sessionFiles = x.files?.length ? x.files : (x.file_id ? [{ file_id: x.file_id, title: x.title }] : []);
+      const setFiles = (ids) => busy(null, async () => {
+        await api("PATCH", `/api/boards/${boardId}/sessions/${x.session_id}`, { file_ids: ids }); reload(); });
+      const fileLinks = sessionFiles.map((f) => el("div", { class: "row session-file", style: "flex-wrap:nowrap" },
+        el("a", { href: "#", class: "small", title: "Open the PDF in a new tab", onclick: (e) => { e.preventDefault(); viewFile(f.file_id); } }, "📄 ", f.title),
+        editable && sessionFiles.length > 1 && el("button", { class: "ghost sm", type: "button", title: "Remove this file from the session",
+          onclick: () => setFiles(sessionFiles.filter((g) => g.file_id !== f.file_id).map((g) => g.file_id)) }, "–")));
+      const addFile = editable && files.length && (() => {
+        const sel = el("select", { class: "session-add-file" }, el("option", { value: "" }, "+ file…"),
+          ...files.filter((f) => !sessionFiles.some((g) => g.file_id === f.file_id)).map((f) => el("option", { value: f.file_id }, f.title || f.name)));
+        sel.addEventListener("change", () => sel.value && setFiles([...sessionFiles.map((g) => g.file_id), sel.value]));
+        return sel;
+      })();
       return el("div", { class: "session-row" },
         el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, time, el("span", { class: cls }, label)),
-        el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" },
-          x.file_id ? el("a", { href: "#", class: "small", title: `Open ${x.name || "PDF"} in a new tab`, onclick: (e) => { e.preventDefault(); viewFile(x.file_id); } }, "📄 ", x.title)
-            : el("span", { class: "small" }, x.title),
-          x.status !== "live" && x.status !== "switching" && el("button", { class: "ghost sm danger", type: "button", title: "Remove",
+        sessionFiles.length > 1 ? el("div", { class: "small muted" }, x.title) : "",
+        el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap;align-items:flex-start" },
+          el("div", { class: "stack", style: "gap:2px" }, ...fileLinks, addFile || ""),
+          x.status !== "live" && x.status !== "switching" && el("button", { class: "ghost sm danger", type: "button", title: "Remove session",
             onclick: (e) => busy(e.currentTarget, async () => { await api("DELETE", `/api/boards/${boardId}/sessions/${x.session_id}`); reload(); }) }, "✕")),
         x.error ? el("div", { class: "alert small" }, x.error) : "");
     });

@@ -271,11 +271,22 @@ function filesSection(spaceId, files, boards, refresh) {
   const st = fileListState[spaceId] ||= { q: "", filter: "all", sort: "newest", page: 0 };
   const usedOn = (f) => [...new Set((f.published_to || []).map((u) => u.board))];
   const label = (f) => f.title || f.name;
+  const scheduled = (f) => f.scheduled || [];
+  const fmtShort = (iso) => new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const metaBadges = (f) => {
+    const m = f.meta || {};
+    return [m.lecture_number != null && `Lecture ${m.lecture_number}`, m.topic, m.semester, ...(m.tags || [])]
+      .filter(Boolean).map((t) => el("span", { class: "badge" }, t));
+  };
   const row = (f) => el("tr", {},
-    el("td", {}, el("strong", {}, label(f)), el("div", { class: "muted small" }, `${f.pages} page${f.pages === 1 ? "" : "s"}`)),
+    el("td", {}, el("strong", {}, label(f)), el("div", { class: "muted small row", style: "gap:4px" }, `${f.pages} page${f.pages === 1 ? "" : "s"}`, ...metaBadges(f))),
     el("td", { class: "muted small" }, el("span", { title: fmtDate(f.uploaded_at) }, timeAgo(f.uploaded_at)),
       f.uploaded_by ? el("div", {}, f.uploaded_by) : ""),
-    el("td", { class: "small" }, usedOn(f).length ? usedOn(f).join(", ") : el("span", { class: "muted" }, "not used yet")),
+    el("td", { class: "small" },
+      ...scheduled(f).map((x) => el("div", {}, x.status === "live" ? "● live on " : "⏱ scheduled: ", el("strong", {}, x.board),
+        x.status === "live" ? "" : ` · ${fmtShort(x.starts_at)}`)),
+      usedOn(f).length ? el("div", { class: "muted" }, "used on: ", usedOn(f).join(", ")) : "",
+      !scheduled(f).length && !usedOn(f).length ? el("span", { class: "muted" }, "not used yet") : ""),
     el("td", { style: "text-align:right" }, cogMenu((close) => [
       menuItem("Put on a board…", () => { close(); boards.length ? putOnBoardDialog(spaceId, f, boards, refresh) : toast("Create a board first", "error"); }),
       menuItem("Download", async () => {
@@ -295,10 +306,12 @@ function filesSection(spaceId, files, boards, refresh) {
   function renderList() {
     const words = st.q.toLowerCase().split(/\s+/).filter(Boolean);
     let shown = files.filter((f) => {
-      const hay = `${label(f)} ${f.name} ${usedOn(f).join(" ")}`.toLowerCase();
+      const m = f.meta || {};
+      const hay = `${label(f)} ${f.name} ${usedOn(f).join(" ")} ${scheduled(f).map((x) => x.board).join(" ")} ${m.topic || ""} ${m.semester || ""} ${(m.tags || []).join(" ")} ${m.lecture_number ?? ""}`.toLowerCase();
       if (!words.every((w) => hay.includes(w))) return false;
+      if (st.filter === "scheduled") return scheduled(f).length > 0;
       if (st.filter === "used") return usedOn(f).length > 0;
-      if (st.filter === "unused") return usedOn(f).length === 0;
+      if (st.filter === "unused") return usedOn(f).length === 0 && scheduled(f).length === 0;
       return true;
     });
     if (st.sort === "name") shown.sort((x, y) => naturalCompare(label(x), label(y)));
@@ -325,7 +338,8 @@ function filesSection(spaceId, files, boards, refresh) {
     oninput: (e) => { st.q = e.target.value; st.page = 0; renderList(); } });
   const opt = (value, text, current) => el("option", { value, selected: value === current }, text);
   const filter = el("select", { style: "width:auto", onchange: (e) => { st.filter = e.target.value; st.page = 0; renderList(); } },
-    opt("all", "All files", st.filter), opt("used", "Used on a board", st.filter), opt("unused", "Not used yet", st.filter));
+    opt("all", "All files", st.filter), opt("scheduled", "Scheduled", st.filter), opt("used", "Used on a board", st.filter),
+    opt("unused", "Not used or scheduled", st.filter));
   const sort = el("select", { style: "width:auto", onchange: (e) => { st.sort = e.target.value; st.page = 0; renderList(); } },
     opt("newest", "Newest first", st.sort), opt("name", "Name A–Z", st.sort), opt("used", "Most used", st.sort));
   if (files.length) renderList();
@@ -468,7 +482,9 @@ async function accountView() {
   const refresh = () => accountView().catch(showError);
 
   const nameInput = el("input", { type: "text", value: user.name, maxlength: 80 });
-  const profile = el("form", { class: "card stack" }, el("h2", {}, "Profile"),
+  const profile = el("form", { class: "card stack" },
+    el("div", { class: "row", style: "flex-wrap:nowrap;gap:14px" }, avatar(user.user_id, user.name, 56),
+      el("div", {}, el("h2", { style: "margin:0" }, user.name), el("div", { class: "muted small" }, "Your picture is generated from your account — everyone sees the same one."))),
     el("div", {}, el("label", {}, "Email"), el("div", { class: "muted" }, user.email, " ",
       user.email_verified ? el("span", {}, "✓ confirmed") : el("span", {}, "· not confirmed yet"))),
     user.email_verified ? "" : el("div", { class: "alert" }, "Please confirm your email address with the link we sent you. ",
@@ -495,45 +511,36 @@ async function accountView() {
     });
   });
 
-  const newKeyBox = el("div");
-  const label = el("input", { type: "text", placeholder: "Label, e.g. “Claude Web”", maxlength: 60 });
-  const keyForm = el("form", { class: "row" }, label, el("button", { class: "primary", type: "submit" }, "Create key"));
-  keyForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    busy(keyForm.querySelector("button"), async () => {
-      const k = await api("POST", "/api/me/api-keys", { label: label.value || "Claude" });
-      const url = `${API_ORIGIN}/mcp/${k.key}`;
-      await refresh();
-      document.getElementById("new-key").replaceChildren(el("div", { class: "alert ok stack" },
-        el("strong", {}, "Your MCP connector URL — copy it now, it is shown only once:"),
-        el("div", { class: "code" }, url),
-        el("button", { class: "sm", type: "button", onclick: () => copyText(url) }, "Copy URL")));
-    });
-  });
-  newKeyBox.id = "new-key";
+  const copyBtn = (text, label = "Copy") => el("button", { class: "sm", type: "button", onclick: () => copyText(text) }, `📋 ${label}`);
+  const newKeyBox = el("div", { id: "new-key" });
+  const createBtn = el("button", { class: "primary", type: "button", onclick: () => busy(createBtn, async () => {
+    const k = await api("POST", "/api/me/api-keys", { label: `Claude (${new Date().toLocaleDateString()})` });
+    const url = `${API_ORIGIN}/mcp/${k.key}`;
+    await refresh();
+    document.getElementById("new-key").replaceChildren(el("div", { class: "alert ok stack" },
+      el("strong", {}, "Your connector link (shown only once):"), el("div", { class: "code" }, url), copyBtn(url, "Copy link")));
+  }) }, "Create connector link");
   const keyRows = api_keys.map((k) => el("tr", {},
     el("td", {}, el("strong", {}, k.label), el("div", { class: "muted small" }, `${k.prefix}…`)),
-    el("td", { class: "muted small" }, "created ", fmtDate(k.created_at), el("br"), k.last_used_at ? `last used ${fmtDate(k.last_used_at)}` : "never used"),
+    el("td", { class: "muted small" }, k.last_used_at ? `last used ${fmtDate(k.last_used_at)}` : "never used"),
     el("td", { style: "text-align:right" }, el("button", { class: "sm danger", onclick: async () => {
-      if (!confirm(`Revoke “${k.label}”? Claude connectors using it stop working.`)) return;
+      if (!confirm(`Revoke “${k.label}”? Claude stops working with it.`)) return;
       await api("DELETE", `/api/me/api-keys/${k.key_id}`).catch(showError); refresh();
     } }, "Revoke"))));
+  const claudeBox = el("div", { class: "card stack", style: "margin-top:16px" },
+    el("h2", {}, "Use Muddy Points in Claude"),
+    el("ol", { class: "steps-list" },
+      el("li", {}, createBtn, newKeyBox),
+      el("li", {}, "In Claude: ", el("strong", {}, "Settings → Connectors → Add custom connector"), ". Name ",
+        el("code", {}, "Muddy Points"), " ", copyBtn("Muddy Points"), ", paste the link, click ", el("strong", {}, "Add"), "."),
+      el("li", {}, "Start a new chat and ask: “Which boards do I have?”")),
+    el("p", { class: "muted small" }, "Keep the link private. Lost it? Revoke it and create a new one."),
+    api_keys.length ? el("details", {}, el("summary", { class: "small" }, `Your connector links (${api_keys.length})`),
+      el("table", {}, el("tbody", {}, keyRows))) : "");
 
   main.replaceChildren(el("h1", {}, "Account"),
     el("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(300px,1fr))" }, profile, pwForm),
-    el("div", { class: "card stack", style: "margin-top:16px" },
-      el("h2", {}, "Claude / MCP access"),
-      el("p", { class: "muted small" }, "Connect Claude to Muddy Points to manage your workspaces and boards by chatting, e.g. “export this week's comments” or “put up the slides for lecture 5”. Claude acts with your permissions."),
-      el("ol", { class: "small steps-list" },
-        el("li", {}, el("strong", {}, "Create a key"), " below and copy the connector URL. It is shown only once."),
-        el("li", {}, "In Claude (claude.ai or desktop app) open ", el("strong", {}, "Settings → Connectors → Add custom connector"), "."),
-        el("li", {}, "Name: ", el("code", {}, "Muddy Points"), ". URL: paste the connector URL. Authentication: ", el("strong", {}, "No authentication"),
-          " (the key is part of the URL). Leave request headers empty. Click ", el("strong", {}, "Add"), "."),
-        el("li", {}, "In a new chat, switch on ", el("strong", {}, "Muddy Points"), " in the + / tools menu and ask: “Which workspaces and boards do I have in Muddy Points?”"),
-        el("li", {}, el("strong", {}, "New slides: "), "ask Claude, e.g. “Replace the ERE slides with the new lecture”. It replies with an upload link: open it and drop the PDF in. Or give Claude a Google Drive / Dropbox link and it loads the PDF itself.")),
-      el("p", { class: "muted small" }, "Treat the URL like a password. If it leaks or you lose it, revoke the key here and create a new one."),
-      keyForm, newKeyBox,
-      api_keys.length ? el("table", {}, el("tbody", {}, keyRows)) : el("p", { class: "muted small" }, "No keys yet.")));
+    claudeBox);
 }
 
 // --- router ----------------------------------------------------------------------------------
