@@ -202,9 +202,77 @@ async function spacesView() {
         : el("p", { class: "muted" }, "No workspaces yet. A workspace is your teaching team; inside it you create one board per course. Use “+ New workspace” above.")));
 }
 
+// --- workspace files ---------------------------------------------------------------------------
+
+// Opens a fresh upload link in a new tab (window opened synchronously so popup blockers don't interfere).
+async function openUploadLink(spaceId) {
+  const win = window.open("", "_blank");
+  try {
+    const { upload_link } = await api("POST", `/api/spaces/${spaceId}/upload-links`, {});
+    if (win) win.location.href = upload_link; else location.href = upload_link;
+  } catch (e) { win?.close(); showError(e); }
+}
+
+function putOnBoardDialog(spaceId, file, boards, done) {
+  const board = el("select", {}, ...boards.map((b) => el("option", { value: b.board_id }, b.name)));
+  const mode = el("select", {}, el("option", { value: "replace" }, "Replace the board's current slides (archived as PDF first)"),
+    el("option", { value: "append" }, "Add after the current slides"));
+  const status = el("div");
+  const close = () => overlay.remove();
+  const form = el("form", { class: "card stack dialog" },
+    el("div", { class: "panel-head" }, el("h2", {}, "Put on a board"), el("button", { class: "ghost", type: "button", onclick: close }, "✕")),
+    el("p", { class: "muted small" }, file.title || file.name, ` · ${file.pages} pages`),
+    el("div", {}, el("label", {}, "Board"), board), el("div", {}, el("label", {}, "How"), mode), status,
+    el("div", { class: "row", style: "justify-content:flex-end" }, el("button", { type: "button", onclick: close }, "Cancel"),
+      el("button", { class: "primary", type: "submit" }, "Put on board")));
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    busy(form.querySelector("button[type=submit]"), async () => {
+      status.replaceChildren(el("p", { class: "muted small" }, "Converting pages to slides…"));
+      try {
+        await api("POST", `/api/spaces/${spaceId}/files/${file.file_id}/publish`, { board_id: board.value, mode: mode.value });
+        close(); toast("Done — the board shows the new material"); done();
+      } catch (err) { status.replaceChildren(el("div", { class: "alert" }, err.message)); }
+    });
+  });
+  const overlay = el("div", { class: "dialog-backdrop", onclick: (e) => { if (e.target === overlay) close(); } }, form);
+  document.body.append(overlay);
+}
+
+function filesSection(spaceId, files, boards, refresh) {
+  const usedOn = (f) => [...new Set((f.published_to || []).map((u) => u.board))];
+  const rows = files.map((f) => el("tr", {},
+    el("td", {}, el("strong", {}, f.title || f.name), el("div", { class: "muted small" }, f.name, ` · ${f.pages} pages`)),
+    el("td", { class: "muted small" }, el("span", { title: fmtDate(f.uploaded_at) }, timeAgo(f.uploaded_at)),
+      f.uploaded_by ? el("div", {}, f.uploaded_by) : ""),
+    el("td", { class: "small" }, usedOn(f).length ? usedOn(f).join(", ") : el("span", { class: "muted" }, "not used yet")),
+    el("td", { style: "text-align:right" }, cogMenu((close) => [
+      menuItem("Put on a board…", () => { close(); boards.length ? putOnBoardDialog(spaceId, f, boards, refresh) : toast("Create a board first", "error"); }),
+      menuItem("Download", async () => {
+        close();
+        const w = window.open("", "_blank");
+        try { const { download_url } = await api("GET", `/api/spaces/${spaceId}/files/${f.file_id}/download`); w.location.href = download_url; }
+        catch (e) { w?.close(); showError(e); }
+      }),
+      menuItem("Delete…", async () => {
+        close();
+        if (!confirm(`Delete “${f.title || f.name}” from the workspace files? Boards that show it are not affected.`)) return;
+        await api("DELETE", `/api/spaces/${spaceId}/files/${f.file_id}`).catch(showError); refresh();
+      }, "danger"),
+    ], "File actions"))));
+  const uploadBtn = el("button", { class: "ghost sm", type: "button", onclick: () => openUploadLink(spaceId) }, "+ Upload files");
+  return [
+    el("div", { class: "section-title" }, el("h2", { style: "margin:0" }, "Files"), uploadBtn),
+    el("p", { class: "muted small", style: "margin-top:-6px" }, "Lecture PDFs and syllabi shared by everyone in this workspace. Kept permanently, so you can reuse them next semester."),
+    files.length ? el("div", { class: "card", style: "padding:4px 12px" }, el("table", {}, el("tbody", {}, rows)))
+      : el("p", { class: "muted" }, "No files yet. PDFs you put on a board are added here automatically, or use “+ Upload files”."),
+  ];
+}
+
 async function spaceView(spaceId) {
-  const [{ space, boards }, members] = await Promise.all([
-    api("GET", `/api/spaces/${spaceId}`), api("GET", `/api/spaces/${spaceId}/members`)]);
+  const [{ space, boards }, members, { files }] = await Promise.all([
+    api("GET", `/api/spaces/${spaceId}`), api("GET", `/api/spaces/${spaceId}/members`),
+    api("GET", `/api/spaces/${spaceId}/files`)]);
   const isOwner = space.role === "owner";
   const me = session.user;
   const refresh = () => spaceView(spaceId).catch(showError);
@@ -298,6 +366,7 @@ async function spaceView(spaceId) {
     createBoard.form,
     boards.length ? el("div", { class: "grid", style: "margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))" }, boardCards)
       : el("p", { class: "muted" }, "No boards yet."),
+    ...filesSection(spaceId, files, boards, refresh),
     el("div", { class: "section-title" }, el("h2", {}, "Members")),
     inviteForm,
     el("div", { class: "card", style: "margin-top:12px;padding:4px 12px" }, el("table", {}, el("tbody", {}, memberRows, inviteRows))));

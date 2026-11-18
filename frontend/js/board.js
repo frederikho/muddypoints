@@ -153,13 +153,59 @@ function setPanel(open) {
   backdrop.classList.toggle("hidden", !open);
   panel.setAttribute("aria-hidden", String(!open));
   settingsBtn.setAttribute("aria-expanded", String(open));
-  if (open) loadArchives();
+  if (open) loadPanelData();
 }
 settingsBtn.addEventListener("click", () => setPanel(!panel.classList.contains("open")));
 backdrop.addEventListener("click", () => setPanel(false));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && panel.classList.contains("open")) setPanel(false); });
 
 const section = (title, ...children) => el("section", { class: "panel-section" }, el("h3", {}, title), ...children);
+
+function loadPanelData() {
+  loadArchives(); loadFiles(); loadHistory();
+}
+
+const publish = (fileId, mode) => api("POST", `/api/spaces/${state.board.space_id}/files/${fileId}/publish`,
+  { board_id: boardId, mode });
+
+async function loadFiles() {
+  const box = document.getElementById("files-box");
+  if (!box) return;
+  box.replaceChildren(el("p", { class: "muted small" }, "Loading…"));
+  try {
+    const { files } = await api("GET", `/api/spaces/${state.board.space_id}/files`);
+    if (!files.length) {
+      box.replaceChildren(el("p", { class: "muted small" }, "No files in this workspace yet. PDFs you upload here are kept there automatically."));
+      return;
+    }
+    const pick = el("select", {}, ...files.map((f) => el("option", { value: f.file_id }, `${f.title || f.name} (${f.pages} p.)`)));
+    const go = el("button", { class: "block", type: "button", onclick: () => busy(go, async () => {
+      const f = files.find((x) => x.file_id === pick.value);
+      if (!confirm(`Replace the current slides with “${f.title || f.name}”? The current slides and comments are archived as PDF first.`)) return;
+      await publish(f.file_id, "replace"); toast("New material is live"); await refresh(true);
+    }) }, "⇄ Replace slides with this file");
+    box.replaceChildren(pick, go);
+  } catch (e) { box.replaceChildren(el("p", { class: "alert" }, e.message)); }
+}
+
+async function loadHistory() {
+  const box = document.getElementById("history-box");
+  if (!box) return;
+  try {
+    const { history } = await api("GET", `/api/boards/${boardId}/history`);
+    if (!history.length) { box.replaceChildren(el("p", { class: "muted small" }, "Nothing yet.")); return; }
+    box.replaceChildren(...history.slice(0, 30).map((h) => {
+      const reusable = h.files.find((f) => f.file_id);
+      return el("div", { class: "history-row" },
+        el("div", {}, el("strong", { class: "small" }, h.files.map((f) => f.title || f.name).join(", ")),
+          el("div", { class: "muted small" }, new Date(h.at).toLocaleString(), h.by ? ` · ${h.by}` : "", h.mode === "append" ? " · added" : "")),
+        reusable && el("button", { class: "ghost sm", type: "button", title: "Put this material on the board again", onclick: (e) => busy(e.currentTarget, async () => {
+          if (!confirm(`Show “${reusable.title || reusable.name}” again? The current slides and comments are archived as PDF first.`)) return;
+          await publish(reusable.file_id, "replace"); toast("Material is live again"); await refresh(true);
+        }) }, "Use again"));
+    }));
+  } catch (e) { box.replaceChildren(el("p", { class: "alert" }, e.message)); }
+}
 
 async function loadArchives() {
   const list = document.getElementById("archive-list");
@@ -220,9 +266,21 @@ function renderPanel() {
     section("Comments", lockBtn, exportBtn),
     section("Background", picker),
     section("Board", renameBtn),
+    section("From workspace files", el("div", { id: "files-box", class: "stack" }),
+      el("button", { class: "ghost sm", type: "button", onclick: () => openUploadLink() }, "+ Upload more files (opens upload page)")),
+    section("History", el("div", { id: "history-box", class: "stack" })),
     section("Archive", el("div", { id: "archive-list", class: "stack" })),
     section("Danger zone", clearBtn));
-  if (wasOpen) loadArchives();
+  if (wasOpen) loadPanelData();
+}
+
+// Opens a fresh no-login upload page for this board's workspace in a new tab.
+async function openUploadLink() {
+  const win = window.open("", "_blank");
+  try {
+    const { upload_link } = await api("POST", `/api/spaces/${state.board.space_id}/upload-links`, {});
+    if (win) win.location.href = upload_link; else location.href = upload_link;
+  } catch (e) { win?.close(); showError(e); }
 }
 
 // Links like board.html?b=<id>#upload (e.g. handed out by Claude) open the upload panel directly.

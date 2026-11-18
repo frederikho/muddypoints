@@ -51,7 +51,9 @@ BOARD#<bid>       SLIDE#<slide_id>      key(S3),position,width,height,source,lik
 BOARD#<bid>       COMMENT#<sortable_id> slide_id,text,author_name,author_key,is_staff,likes
 BOARD#<bid>       LIKE#<target_id>#<viewer_key>   target,viewer   (viewer_key = u:<uid> | a:<anon_id>)
 ```
-S3 layout: `uploads/<bid>/…` (raw uploads, expire after 1 day), `boards/<bid>/slides/<id>.jpg`, `exports/<bid>/…pdf` (expire after 7 days), `archive/<bid>/…pdf` (kept).
+Workspace files (`library.py`): `BLOB#<sha256>/META` (global, one per distinct PDF), `SPACE#<sid>/FILE#<file_id>` + `SPACE#<sid>/FILEHASH#<sha256>` (dedup per workspace), `DROP#<sha256(token)>/DROP` (upload links), `BOARD#<bid>/HIST#<sortable_id>` (board history). Every PDF that goes on a board (panel upload, URL import, publish) is also registered as a workspace file.
+
+S3 layout: `blobs/<sha256>.pdf` + `blobs/<sha256>.text.json` (content-addressed files + extracted text), `uploads/<bid>/…` and `uploads/drop/…` (raw uploads, expire after 1 day), `boards/<bid>/slides/<id>.jpg`, `exports/<bid>/…pdf` (expire after 7 days), `archive/<bid>/…pdf` (kept).
 
 When you add an access pattern that needs a new index, add it to **both** `template.yaml` and `localinfra.py` (tests and the dev server use the latter).
 
@@ -67,6 +69,9 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 | `list_comments`, `delete_comment` | comments |
 | `import_slides_from_url` (mode append/replace) | load a PDF or image from a URL (Drive and Dropbox share links work) |
 | `replace_board_material` | weekly rotation: archive PDF, clear, import new material from URL |
+| `create_upload_link` (hours, note) | **no-login upload page** (`drop.html#<token>`) for a workspace: user drags PDFs in → workspace files. The standard way to receive files from users |
+| `list_files`, `read_file` (from_page, to_page, max_chars), `publish_file` (mode), `delete_file` | workspace files: overview (title, pages, outline, `published_to`), paginated text, put on a board |
+| `get_board_history` | what was put on a board when (file ids) → reuse material from earlier weeks/semesters |
 | `get_upload_link` (replace) | link that opens the board's upload panel (`#upload` / `#upload-replace`); **the way to handle files attached in claude.ai chats** (their sandbox can't reach S3) |
 | `prepare_slide_upload` → PUT → `confirm_slide_upload` | direct upload via presigned S3 URL, only for clients with open network (e.g. Claude Code) |
 | `reorder_slides`, `delete_slide`, `clear_board` | slide management |
