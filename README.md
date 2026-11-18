@@ -89,11 +89,14 @@ Without `MAIL_FROM` the app still works, but emails are only written to the logs
 
 1. Create an account at brevo.com. Under **Senders, Domains & Dedicated IPs** add and verify your sender address.
 2. Under **SMTP & API → API Keys** create an API key.
+   **Important:** under **Security → Authorised IPs** (https://app.brevo.com/security/authorised_ips) *deactivate* the blocking of unknown IP addresses. AWS Lambda has no fixed IP, and otherwise Brevo rejects every email with "unrecognised IP address".
 3. Save both in GitHub, then redeploy (push, or Actions → Run workflow):
    ```bash
    gh secret set BREVO_API_KEY          # paste the key when asked
    gh variable set MAIL_FROM -b "boards@your-university.de"
    ```
+
+Test it with **Forgot your password?** on the login page. Problems show up in the logs as `email sending failed` with Brevo's error message (ask Claude: *"show Muddy Points errors of the last hour"*). Only password resets and invitations send emails; registering does not.
 
 Alternative: Amazon SES. Verify the sender in SES (same region), request production access (otherwise SES only sends to verified addresses), set only `MAIL_FROM`, and leave `BREVO_API_KEY` unset.
 
