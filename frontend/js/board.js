@@ -1,7 +1,10 @@
 // Public board page: slides with likes and comments. Staff (workspace members) also get a settings side panel (⚙).
 import { api, session, storage, el, toast, showError, busy, timeAgo, ApiError, BACKGROUNDS, backgroundPicker } from "./api.js";
+import { DEMO_ID, demoCall, demoIdentity } from "./demo.js";
 
 const boardId = new URLSearchParams(location.search).get("b");
+const isDemo = boardId === DEMO_ID; // pretend board: all data is local, see demo.js
+let viewerName = "";
 const IDENTITY_KEY = "muddypoints.identity";
 const REFRESH_MS = 20000;
 
@@ -11,6 +14,7 @@ const slideNodes = new Map(); // slide_id -> {root, comments, likeBtn}
 
 // --- anonymous identity: random funny name, kept 7 days in localStorage, then replaced ---------
 async function ensureIdentity() {
+  if (isDemo) return demoIdentity();
   if (session.token) return null; // logged-in staff comment under their own name
   const saved = storage.get(IDENTITY_KEY);
   if (saved?.token && saved.expires_at * 1000 > Date.now()) return saved;
@@ -20,7 +24,7 @@ async function ensureIdentity() {
   return fresh;
 }
 
-const call = (method, path, body) => api(method, path, body, { anonToken });
+const call = (method, path, body) => isDemo ? demoCall(method, path, body, viewerName) : api(method, path, body, { anonToken });
 
 async function load() {
   return call("GET", `/api/boards/${boardId}`);
@@ -510,6 +514,12 @@ async function refresh(force = false) {
   }
 }
 
+function showDemoBanner() {
+  document.querySelector("main").before(el("div", { class: "demo-banner" },
+    el("span", {}, "🧪 ", el("strong", {}, "Demo board."), " Try commenting and liking: it stays in your browser and isn't saved or shared."),
+    el("a", { href: "./" }, "Create your own board, free →")));
+}
+
 async function init() {
   if (!boardId) {
     document.getElementById("board-title").textContent = "No board selected";
@@ -518,6 +528,7 @@ async function init() {
   try {
     const identity = await ensureIdentity();
     anonToken = identity?.token || null;
+    if (isDemo) { viewerName = identity.name; showDemoBanner(); }
     await refresh(true);
     if (location.hash === "#upload" || location.hash === "#upload-replace") openUploadFromLink(location.hash === "#upload-replace");
     else if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
@@ -527,6 +538,7 @@ async function init() {
       e.status === 404 ? "This board does not exist (anymore). Ask your lecturer for the current link." : e.message));
     return;
   }
+  if (isDemo) return; // nothing to poll
   setInterval(() => { if (document.visibilityState === "visible") refresh().catch(() => {}); }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh().catch(() => {}); });
 }

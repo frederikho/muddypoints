@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" font-family="Helvetica, Arial, sans-serif">
+<rect width="1600" height="900" fill="#ffffff"/>
+<rect width="1600" height="14" fill="#4f46e5"/>
+<text x="90" y="150" font-size="68" font-weight="800" fill="#1c2330">Worked example</text>
+<text x="90" y="260" font-size="34" fill="#667085">Exam scores of n = 25 students</text><text x="90" y="360" font-size="52" font-style="italic" font-family="Georgia, 'Times New Roman', serif" fill="#1c2330">x̄ = 68.4,   s = 11.2</text><text x="90" y="470" font-size="52" font-style="italic" font-family="Georgia, 'Times New Roman', serif" fill="#1c2330">SE = 11.2 / √25 = 2.24</text><text x="90" y="580" font-size="52" font-style="italic" font-family="Georgia, 'Times New Roman', serif" fill="#1c2330">t* (df = 24) = 2.064</text><rect x="90" y="650" width="900" height="110" rx="16" fill="#eef0ff"/><text x="130" y="722" font-size="52" font-style="italic" font-family="Georgia, 'Times New Roman', serif" fill="#4f46e5">95 % CI: [63.8 ; 73.0]</text><line x1="1120" y1="560" x2="1480" y2="560" stroke="#667085" stroke-width="3"/><line x1="1180" y1="560" x2="1420" y2="560" stroke="#4f46e5" stroke-width="10" stroke-linecap="round"/><circle cx="1300" cy="560" r="14" fill="#4f46e5"/><text x="1300" y="520" font-size="26" fill="#1c2330" text-anchor="middle">68.4</text><text x="1180" y="610" font-size="24" fill="#667085" text-anchor="middle">63.8</text><text x="1420" y="610" font-size="24" fill="#667085" text-anchor="middle">73.0</text>
+<text x="90" y="858" font-size="24" fill="#667085">Statistics I · Lecture 4</text>
+<text x="1510" y="858" font-size="24" fill="#667085" text-anchor="end">6</text>
+</svg>
