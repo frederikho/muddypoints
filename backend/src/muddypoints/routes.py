@@ -351,6 +351,11 @@ def list_files(req):
     return {"files": library.list_files(require_user(req), p(req, "space_id"), with_outline=False)}
 
 
+@router.route("PATCH", "/api/spaces/{space_id}/files/{file_id}")
+def update_file_metadata(req):
+    return {"file": library.update_metadata(require_user(req), p(req, "space_id"), p(req, "file_id"), body(req))}
+
+
 @router.route("GET", "/api/spaces/{space_id}/files/{file_id}/download")
 def download_file(req):
     return library.download_url(require_user(req), p(req, "space_id"), p(req, "file_id"),
@@ -394,7 +399,14 @@ def update_session(req):
     from . import schedule
     d = body(req)
     return {"session": schedule.update_session(require_user(req), p(req, "board_id"), p(req, "session_id"),
-                                               d.get("starts_at"), d.get("title"), d.get("file_id"))}
+                                               d.get("starts_at"), d.get("title"), d.get("file_id"),
+                                               d.get("file_ids"))}
+
+
+@router.route("POST", "/api/boards/{board_id}/sessions/{session_id}/run")
+def run_session_now(req):
+    from . import schedule
+    return schedule.run_now(require_user(req), p(req, "board_id"), p(req, "session_id"))
 
 
 @router.route("DELETE", "/api/boards/{board_id}/sessions/{session_id}")

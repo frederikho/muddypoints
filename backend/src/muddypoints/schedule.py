@@ -74,16 +74,45 @@ GENERIC_TITLES = {"powerpoint presentation", "powerpoint-präsentation", "presen
                   "microsoft powerpoint"}
 
 
+MAX_FILES_PER_SESSION = 10
+
+
+def session_files(s: dict) -> list[dict]:
+    """[{file_id, sha256, name}] - sessions can hold several files (older sessions: one file in top-level fields)."""
+    return s.get("files") or [{"file_id": s.get("file_id"), "sha256": s.get("sha256"), "name": s.get("name")}]
+
+
 def session_title(s: dict) -> str:
-    """Stored title, unless it is a meaningless embedded PDF title (older sessions) -> the file name."""
+    """Stored title, unless it is a meaningless embedded PDF title (older sessions) -> the file name(s)."""
     title = s.get("title") or ""
     if not title or title.strip().lower() in GENERIC_TITLES or title.lower().startswith("microsoft powerpoint - "):
-        return library.pretty_name(s.get("name") or "Session")
+        return " + ".join(library.pretty_name(f.get("name") or "Session") for f in session_files(s))
     return title
 
 
+def _files_for(board: dict, spec: dict) -> list[dict]:
+    ids = spec.get("file_ids") if spec.get("file_ids") is not None else [spec.get("file_id")]
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+        raise ApiError(400, "invalid_input", "Each session needs file_id or a non-empty list file_ids")
+    if len(ids) > MAX_FILES_PER_SESSION:
+        raise ApiError(400, "invalid_input", f"At most {MAX_FILES_PER_SESSION} files per session")
+    files = []
+    for fid in dict.fromkeys(ids):  # keep order, drop duplicates
+        f = library.get_file(board["space_id"], fid)
+        files.append({"file_id": f["file_id"], "sha256": f["sha256"], "name": f["name"]})
+    return files
+
+
+def _file_fields(files: list[dict]) -> dict:
+    # top-level fields mirror the first file (compatibility with single-file sessions)
+    return {"files": files, "file_id": files[0]["file_id"], "sha256": files[0]["sha256"], "name": files[0]["name"]}
+
+
 def _public(s: dict, tz: ZoneInfo) -> dict:
-    return {"session_id": s["session_id"], "title": session_title(s), "file_id": s.get("file_id"), "name": s.get("name"),
+    files = [{"file_id": f["file_id"], "name": f["name"], "title": library.pretty_name(f["name"] or "")}
+             for f in session_files(s)]
+    return {"session_id": s["session_id"], "title": session_title(s), "files": files,
+            "file_id": s.get("file_id"), "name": s.get("name"),
             "starts_at": s["starts_at"], "starts_at_local": local(s["starts_at"], tz), "status": s["status"],
             "switched_at": s.get("switched_at"), "error": s.get("error")}
 
@@ -107,12 +136,12 @@ def _new_session(user: dict, board: dict, spec: dict) -> dict:
     if not isinstance(spec, dict):
         raise ApiError(400, "invalid_input", "Each session must be an object with file_id and starts_at")
     tz = board_tz(board)
-    f = library.get_file(board["space_id"], spec.get("file_id"))
+    files = _files_for(board, spec)
     starts_at = parse_time(spec.get("starts_at"), tz)
-    title = clean_name(spec.get("title") or library.pretty_name(f["name"]), "title", 160)
+    title = clean_name(spec.get("title") or " + ".join(library.pretty_name(f["name"]) for f in files), "title", 160)
     sid = new_id()
-    return {"PK": f"BOARD#{board['board_id']}", "SK": f"SESSION#{sid}", "session_id": sid, "file_id": f["file_id"],
-            "sha256": f["sha256"], "name": f["name"], "title": title, "starts_at": starts_at, "status": "planned",
+    return {"PK": f"BOARD#{board['board_id']}", "SK": f"SESSION#{sid}", "session_id": sid, **_file_fields(files),
+            "title": title, "starts_at": starts_at, "status": "planned",
             "created_by": user["name"], "created_at": now_iso(),
             "GSI1PK": "SCHED", "GSI1SK": f"{starts_at}#{board['board_id']}#{sid}"}
 
@@ -124,25 +153,69 @@ def add_session(user: dict, board_id: str, spec: dict) -> dict:
     _refresh_next_switch(board_id)
     log_event(logger, logging.INFO, "session planned", board_id=board_id, session_id=item["session_id"],
               starts_at=item["starts_at"])
-    return _public(item, board_tz(board))
+    out = _public(item, board_tz(board))
+    warnings = _warnings([item], board_tz(board))
+    return {**out, "warning": warnings[0]} if warnings else out
 
 
-def set_schedule(user: dict, board_id: str, sessions, replace_planned: bool = True) -> dict:
-    """Replace all *planned* sessions with the given list (done/live sessions are kept as history)."""
+def run_now(user: dict, board_id: str, session_id: str) -> dict:
+    """Make a session live immediately (keeps the schedule in sync). A 'done' session is copied (its history stays)."""
+    board, _ = boards.require_board(user, board_id, "editor")
+    s = db.get(f"BOARD#{board_id}", f"SESSION#{session_id}")
+    if not s:
+        raise not_found("Session")
+    if s["status"] in ("live", "switching"):
+        raise ApiError(409, "session_live", "This session is already live")
+    now = _now()
+    if s["status"] == "done":
+        copy = _new_session(user, board, {"file_ids": [f["file_id"] for f in session_files(s)], "starts_at": now,
+                                          "title": session_title(s)})
+        db.put(copy)
+        session_id = copy["session_id"]
+    else:  # planned / skipped / failed
+        db.update(s["PK"], s["SK"], {"status": "planned", "starts_at": now, "error": None, "GSI1PK": "SCHED",
+                                     "GSI1SK": f"{now}#{board_id}#{session_id}"})
+    result = advance(board_id, now)
+    if not result or result.get("session_id") != session_id:
+        raise ApiError(409, "not_switched", f"The switch did not happen: {result}")
+    return get_schedule(user, board_id)
+
+
+PAST_NOTE = ("is in the past: it goes live at the next scheduler run (within 5 minutes). If several sessions are "
+             "in the past, only the latest of them goes live; the earlier ones are marked 'skipped'.")
+
+
+def _warnings(items: list[dict], tz: ZoneInfo) -> list[str]:
+    now = _now()
+    return [f"Session '{session_title(i)}' at {local(i['starts_at'], tz)} {PAST_NOTE}" for i in items
+            if i["starts_at"] <= now]
+
+
+def set_schedule(user: dict, board_id: str, sessions, replace_planned: bool = True, dry_run: bool = False) -> dict:
+    """Replace all *planned* sessions with the given list (done/live sessions are kept as history).
+    dry_run=True validates and returns the resulting schedule + warnings without saving anything."""
     board, _ = boards.require_board(user, board_id, "editor")
     if not isinstance(sessions, list) or len(sessions) > 100:
         raise ApiError(400, "invalid_input", "'sessions' must be a list (max 100)")
     items = [_new_session(user, board, spec) for spec in sessions]  # validate everything first
+    tz = board_tz(board)
+    warnings = _warnings(items, tz)
+    if dry_run:
+        kept = [s for s in _sessions(board_id) if not (replace_planned and s["status"] == "planned")]
+        preview = sorted(kept + items, key=lambda s: (s["starts_at"], s["SK"]))
+        return {"dry_run": True, "saved": False, "board": board["name"], "timezone": str(tz),
+                "sessions": [_public(s, tz) for s in preview], "warnings": warnings}
     if replace_planned:
         db.batch_delete([(s["PK"], s["SK"]) for s in _sessions(board_id) if s["status"] == "planned"])
     for item in items:
         db.put(item)
     _refresh_next_switch(board_id)
     log_event(logger, logging.INFO, "schedule set", board_id=board_id, sessions=len(items))
-    return get_schedule(user, board_id)
+    return {**get_schedule(user, board_id), "saved": True, "warnings": warnings}
 
 
-def update_session(user: dict, board_id: str, session_id: str, starts_at=None, title=None, file_id=None) -> dict:
+def update_session(user: dict, board_id: str, session_id: str, starts_at=None, title=None, file_id=None,
+                   file_ids=None) -> dict:
     board, _ = boards.require_board(user, board_id, "editor")
     s = db.get(f"BOARD#{board_id}", f"SESSION#{session_id}")
     if not s:
@@ -155,9 +228,9 @@ def update_session(user: dict, board_id: str, session_id: str, starts_at=None, t
         fields["GSI1SK"] = f"{fields['starts_at']}#{board_id}#{session_id}"
     if title is not None:
         fields["title"] = clean_name(title, "title", 160)
-    if file_id is not None:
-        f = library.get_file(board["space_id"], file_id)
-        fields.update({"file_id": f["file_id"], "sha256": f["sha256"], "name": f["name"]})
+    if file_ids is not None or file_id is not None:
+        fields.update(_file_fields(_files_for(board, {"file_ids": file_ids} if file_ids is not None else
+                                              {"file_id": file_id})))
     if fields:
         s = db.update(f"BOARD#{board_id}", f"SESSION#{session_id}", fields)
         _refresh_next_switch(board_id)
@@ -204,10 +277,11 @@ def advance(board_id: str, now: str | None = None) -> dict | None:
             db.remove_attrs(s["PK"], s["SK"], ["GSI1PK", "GSI1SK"])
     board = boards.get_board_meta(board_id)
     try:
-        data = media.get_bytes(f"blobs/{target['sha256']}.pdf")
-        result = uploads._ingest(SYSTEM_USER, board_id, [(data, target["name"])], "replace", True,
-                                 source_files=[{"file_id": target.get("file_id"), "name": target["name"],
-                                                "title": session_title(target)}], notify=False)
+        files = session_files(target)
+        blobs = [(media.get_bytes(f"blobs/{f['sha256']}.pdf"), f["name"]) for f in files]
+        result = uploads._ingest(SYSTEM_USER, board_id, blobs, "replace", True,
+                                 source_files=[{"file_id": f.get("file_id"), "name": f["name"]} for f in files],
+                                 notify=False)
     except Exception as exc:
         message = getattr(exc, "message", None) or repr(exc)
         db.update(*key, {"status": "failed", "error": message[:500]})

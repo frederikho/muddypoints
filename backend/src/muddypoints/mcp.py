@@ -290,11 +290,31 @@ def _create_link(user, a):
     return library.create_link(user, a["workspace_id"], a.get("hours", 24), a.get("note"))
 
 
-@tool("list_files", "The workspace's files (newest first): name, title, page count, outline/table of contents and "
-      "where each file was published before. Cheap overview - read details with read_file.",
-      SPACE, ("workspace_id",), read_only=True)
+@tool("list_files", "The workspace's files (newest first): name, title, page count, outline, metadata (lecture_number, "
+      "topic, semester, tags, notes), where each file was published before and where it is scheduled. Cheap overview - "
+      "read details with read_file / view_file_pages. Optional filters.",
+      {**SPACE, "query": {"type": "string", "description": "Words that must appear in name/topic/tags/notes"},
+       "semester": S, "tag": S}, ("workspace_id",), read_only=True)
 def _list_files(user, a):
-    return library.list_files(user, a["workspace_id"])
+    return library.list_files(user, a["workspace_id"], query=a.get("query"), semester=a.get("semester"),
+                              tag=a.get("tag"))
+
+
+@tool("update_file_metadata", "Set metadata on a workspace file so it can be matched to syllabus weeks reliably: "
+      "lecture_number, topic, semester (e.g. 'WS 2026/27'), tags, notes. Fill it after reading a file; null clears.",
+      {**SPACE, "file_id": S, "lecture_number": {"type": ["integer", "null"]}, "topic": {"type": ["string", "null"]},
+       "semester": {"type": ["string", "null"]}, "tags": {"type": ["array", "null"], "items": S},
+       "notes": {"type": ["string", "null"]}}, ("workspace_id", "file_id"))
+def _update_file_meta(user, a):
+    return library.update_metadata(user, a["workspace_id"], a["file_id"],
+                                   {k: a[k] for k in library.META_FIELDS if k in a})
+
+
+@tool("import_file_from_url", "Download a PDF from a URL into the workspace files (direct links and Google Drive, "
+      "Dropbox, Seafile, Nextcloud/sciebo share links). Duplicates are recognised. Does not touch any board.",
+      {**SPACE, "url": S}, ("workspace_id", "url"))
+def _import_file(user, a):
+    return library.import_url(user, a["workspace_id"], a.get("url"))
 
 
 @tool("read_file", "Extracted text of a file, page by page. Read in chunks: returns next_from_page when there is "
@@ -324,6 +344,19 @@ def _view_page(user, a):
                              {"type": "text", "text": f"{info['file']}, page {info['page']} of {info['pages']}"}]}
 
 
+@tool("view_file_pages", "Overview of up to 12 pages of a workspace file as ONE image (labelled thumbnail grid). "
+      "Cheaper than view_file_page for checking what a lecture contains; use view_file_page for details.",
+      {**SPACE, "file_id": S, "from_page": {"type": "integer", "default": 1},
+       "to_page": {"type": "integer", "description": "Last page (max 12 pages per call)"}},
+      ("workspace_id", "file_id"), read_only=True)
+def _view_pages(user, a):
+    import base64
+    jpeg, info = library.contact_sheet(user, a["workspace_id"], a["file_id"], a.get("from_page", 1), a.get("to_page"))
+    return {"_mcp_content": [{"type": "image", "data": base64.b64encode(jpeg).decode(), "mimeType": "image/jpeg"},
+                             {"type": "text", "text": f"{info['file']}: pages {info['pages_shown'][0]}-"
+                                                      f"{info['pages_shown'][1]} of {info['total_pages']}"}]}
+
+
 @tool("delete_file", "Delete a file from the workspace files (boards that already show it are not affected).",
       {**SPACE, "file_id": S}, ("workspace_id", "file_id"), destructive=True)
 def _delete_file(user, a):
@@ -340,11 +373,14 @@ def _board_history(user, a):
 # --- schedules ------------------------------------------------------------------------------
 
 SESSION_SPEC = {"type": "object", "properties": {
-    "file_id": {"type": "string", "description": "Workspace file (from list_files)"},
+    "file_ids": {"type": "array", "items": {"type": "string"},
+                 "description": "Workspace files shown together in this session, in this order (e.g. two lectures in "
+                                "one week). Use this OR file_id."},
+    "file_id": {"type": "string", "description": "Single workspace file (from list_files)"},
     "starts_at": {"type": "string", "description": "Switch time, local to the board's time zone, e.g. 2026-10-20T16:00 "
                                                    "(or ISO-8601 with offset)"},
     "title": {"type": "string", "description": "e.g. 'Lecture 3: Externalities' (default: the file's title)"}},
-    "required": ["file_id", "starts_at"]}
+    "required": ["starts_at"]}
 
 
 @tool("get_schedule", "The board's sessions (planned/live/done) with local times, plus the board's time zone and the "
@@ -354,23 +390,33 @@ def _get_schedule(user, a):
 
 
 @tool("set_schedule", "Replace all PLANNED sessions of a board with this list (live/done sessions stay as history). "
-      "Only call after the user confirmed the proposed schedule.",
-      {**BOARD, "sessions": {"type": "array", "items": SESSION_SPEC}}, ("board_id", "sessions"))
+      "Use dry_run=true first to validate and preview (nothing is saved; warnings list sessions in the past, which "
+      "would go live within 5 minutes - only the latest past one, earlier past ones get 'skipped'). "
+      "Only save after the user confirmed the proposed schedule.",
+      {**BOARD, "sessions": {"type": "array", "items": SESSION_SPEC}, "dry_run": {"type": "boolean", "default": False}},
+      ("board_id", "sessions"))
 def _set_schedule(user, a):
-    return schedule.set_schedule(user, a["board_id"], a.get("sessions"))
+    return schedule.set_schedule(user, a["board_id"], a.get("sessions"), dry_run=bool(a.get("dry_run")))
 
 
-@tool("add_session", "Add one planned session to a board's schedule.", {**BOARD, **SESSION_SPEC["properties"]},
-      ("board_id", "file_id", "starts_at"))
+@tool("add_session", "Add one planned session to a board's schedule (one or several files).",
+      {**BOARD, **SESSION_SPEC["properties"]}, ("board_id", "starts_at"))
 def _add_session(user, a):
-    return schedule.add_session(user, a["board_id"], {k: a.get(k) for k in ("file_id", "starts_at", "title")})
+    return schedule.add_session(user, a["board_id"], {k: a.get(k) for k in ("file_id", "file_ids", "starts_at", "title")})
 
 
-@tool("update_session", "Change time, title or file of a planned session.",
+@tool("update_session", "Change time, title or files of a planned session (file_ids replaces the session's files).",
       {**BOARD, "session_id": S, **SESSION_SPEC["properties"]}, ("board_id", "session_id"))
 def _update_session(user, a):
     return schedule.update_session(user, a["board_id"], a["session_id"], a.get("starts_at"), a.get("title"),
-                                   a.get("file_id"))
+                                   a.get("file_id"), a.get("file_ids"))
+
+
+@tool("run_session_now", "Make a session live immediately (archives the current material as usual) and keep the "
+      "schedule in sync. Works for planned/skipped/failed sessions; a 'done' session is shown again as a copy.",
+      {**BOARD, "session_id": S}, ("board_id", "session_id"))
+def _run_now(user, a):
+    return schedule.run_now(user, a["board_id"], a["session_id"])
 
 
 @tool("remove_session", "Remove a planned (or past) session from a board's schedule.", {**BOARD, "session_id": S},

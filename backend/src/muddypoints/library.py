@@ -217,21 +217,97 @@ def confirm(token: str, upload_key, sha256) -> dict:
 
 # --- workspace files (staff / Claude) -------------------------------------------------------
 
+META_FIELDS = ("lecture_number", "topic", "semester", "tags", "notes")
+
+
 def _public(item: dict) -> dict:
     out = {k: item.get(k) for k in ("file_id", "name", "pages", "size", "outline", "uploaded_at", "uploaded_by",
                                     "published_to")}
     out["title"] = pretty_name(item["name"])  # always the file name (older entries stored the embedded PDF title)
+    out["meta"] = {k: item[k] for k in META_FIELDS if item.get(k) not in (None, "", [])}
     return out
 
 
-def list_files(user: dict, space_id: str, with_outline: bool = True) -> list[dict]:
+def _scheduled_by_file(space_id: str) -> dict[str, list[dict]]:
+    """file_id -> planned/live sessions on the workspace's boards (so the file list can show 'scheduled on …')."""
+    out: dict[str, list[dict]] = {}
+    for board in db.query_gsi1(f"SPACE#{space_id}", "BOARD#"):
+        for s in db.query(f"BOARD#{board['board_id']}", "SESSION#"):
+            if s.get("status") not in ("planned", "live", "switching"):
+                continue
+            file_ids = [f["file_id"] for f in s.get("files") or []] or [s.get("file_id")]
+            for fid in filter(None, file_ids):
+                out.setdefault(fid, []).append({"board_id": board["board_id"], "board": board["name"],
+                                                "starts_at": s["starts_at"], "status": s["status"]})
+    for sessions in out.values():
+        sessions.sort(key=lambda x: x["starts_at"])
+    return out
+
+
+def list_files(user: dict, space_id: str, with_outline: bool = True, query: str | None = None,
+               semester: str | None = None, tag: str | None = None) -> list[dict]:
+    """Workspace files, newest first, with metadata, publish history and planned/live sessions.
+    Optional filters: query (words in name/topic/tags/notes), semester, tag."""
     spaces.require_space(user, space_id, "editor")
     items = sorted(db.query(f"SPACE#{space_id}", "FILE#"), key=lambda i: i["SK"], reverse=True)
-    out = [_public(i) for i in items]
-    if not with_outline:
-        for f in out:
+    scheduled = _scheduled_by_file(space_id)
+    out = []
+    for item in items:
+        f = _public(item)
+        f["scheduled"] = scheduled.get(f["file_id"], [])
+        meta = f["meta"]
+        if semester and str(meta.get("semester", "")).lower() != str(semester).lower():
+            continue
+        if tag and str(tag).lower() not in [t.lower() for t in meta.get("tags", [])]:
+            continue
+        if query:
+            hay = " ".join([f["title"], f["name"], str(meta.get("topic", "")), " ".join(meta.get("tags", [])),
+                            str(meta.get("notes", "")), str(meta.get("lecture_number", ""))]).lower()
+            if not all(w in hay for w in str(query).lower().split()):
+                continue
+        if not with_outline:
             f.pop("outline", None)
+        out.append(f)
     return out
+
+
+def update_metadata(user: dict, space_id: str, file_id: str, fields: dict) -> dict:
+    """Set lecture_number / topic / semester / tags / notes (None or "" clears a field)."""
+    spaces.require_space(user, space_id, "editor")
+    get_file(space_id, file_id)
+    updates, clear = {}, []
+    for key in META_FIELDS:
+        if key not in fields:
+            continue
+        value = fields[key]
+        if value in (None, "", []):
+            clear.append(key)
+        elif key == "lecture_number":
+            try:
+                updates[key] = int(value)
+            except (TypeError, ValueError):
+                raise ApiError(400, "invalid_input", "lecture_number must be a whole number")
+        elif key == "tags":
+            if not isinstance(value, list):
+                raise ApiError(400, "invalid_input", "tags must be a list of strings")
+            updates[key] = [str(t).strip()[:40] for t in value if str(t).strip()][:20]
+        else:
+            updates[key] = str(value).strip()[:500 if key == "notes" else 120]
+    if updates:
+        db.update(f"SPACE#{space_id}", f"FILE#{file_id}", updates)
+    if clear:
+        db.remove_attrs(f"SPACE#{space_id}", f"FILE#{file_id}", clear)
+    return _public(get_file(space_id, file_id))
+
+
+def import_url(user: dict, space_id: str, url) -> dict:
+    """Download a PDF from a URL (direct link or Drive/Dropbox/Seafile/Nextcloud share link) into the files."""
+    spaces.require_space(user, space_id, "editor")
+    data, name = media.download(url)
+    if not name.lower().endswith(".pdf"):
+        name = (name or "download") + ".pdf"
+    entry, created = add_bytes(space_id, data, name, user["name"])
+    return {**_public(entry), "status": "added" if created else "exists"}
 
 
 def get_file(space_id: str, file_id: str) -> dict:
@@ -318,6 +394,42 @@ def page_image(user: dict, space_id: str, file_id: str, page: int = 1, max_side:
         zoom = min(2.0, max_side / max(p.rect.width, p.rect.height, 1))
         pix = p.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
         return pix.tobytes("jpg", jpg_quality=80), {"file": item["name"], "page": page, "pages": doc.page_count}
+
+
+MAX_SHEET_PAGES = 12
+
+
+def contact_sheet(user: dict, space_id: str, file_id: str, from_page=1, to_page=None) -> tuple[bytes, dict]:
+    """Up to 12 pages as a labelled thumbnail grid in ONE image (cheap overview for Claude)."""
+    spaces.require_space(user, space_id, "editor")
+    item = get_file(space_id, file_id)
+    with pymupdf.open(stream=file_bytes(item), filetype="pdf") as src:
+        try:
+            start = max(1, int(from_page or 1))
+            end = min(src.page_count, int(to_page) if to_page else start + MAX_SHEET_PAGES - 1, start + MAX_SHEET_PAGES - 1)
+        except (TypeError, ValueError):
+            raise ApiError(400, "invalid_input", "from_page and to_page must be numbers")
+        if start > src.page_count:
+            raise ApiError(400, "invalid_input", f"The file has only {src.page_count} pages")
+        numbers = list(range(start, end + 1))
+        cols = 3 if len(numbers) > 4 else 2 if len(numbers) > 1 else 1
+        rows = -(-len(numbers) // cols)
+        first = src[start - 1].rect
+        cell_w, label_h, gap = 400.0, 18.0, 10.0
+        cell_h = cell_w * first.height / max(first.width, 1)
+        sheet = pymupdf.open()
+        page = sheet.new_page(width=cols * (cell_w + gap) + gap, height=rows * (cell_h + label_h + gap) + gap)
+        for i, n in enumerate(numbers):
+            x = gap + (i % cols) * (cell_w + gap)
+            y = gap + (i // cols) * (cell_h + label_h + gap)
+            page.insert_text((x, y + 13), f"Page {n}", fontsize=12, color=(0.25, 0.25, 0.25))
+            rect = pymupdf.Rect(x, y + label_h, x + cell_w, y + label_h + cell_h)
+            page.draw_rect(rect, color=(0.8, 0.8, 0.8), width=0.5)
+            page.show_pdf_page(rect, src, n - 1)
+        zoom = min(2.0, 1800 / page.rect.width)
+        jpeg = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False).tobytes("jpg", jpg_quality=78)
+        sheet.close()
+        return jpeg, {"file": item["name"], "pages_shown": [numbers[0], numbers[-1]], "total_pages": src.page_count}
 
 
 # --- board history --------------------------------------------------------------------------

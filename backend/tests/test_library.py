@@ -186,3 +186,26 @@ def test_inline_view_link(client, owner):
     inline = client.get(f"/api/spaces/{sid}/files/{fid}/download?inline=1")[1]["download_url"]
     download = client.get(f"/api/spaces/{sid}/files/{fid}/download")[1]["download_url"]
     assert "inline" in inline and "attachment" not in inline and "attachment" in download
+
+
+def test_metadata_filters_and_url_import(client, owner, monkeypatch):
+    sid = owner["space_id"]
+    fid = drop_upload(link_token(client, sid), [("OdN_VL_5.pdf", make_pdf(2))])[0]["file_id"]
+    s, d = client.patch(f"/api/spaces/{sid}/files/{fid}", {"lecture_number": "5", "topic": "Public goods",
+                                                            "semester": "WS 2026/27", "tags": ["externalities", " "]})
+    assert s == 200 and d["file"]["meta"] == {"lecture_number": 5, "topic": "Public goods", "semester": "WS 2026/27",
+                                              "tags": ["externalities"]}
+    assert client.patch(f"/api/spaces/{sid}/files/{fid}", {"lecture_number": "five"})[0] == 400
+    from muddypoints import library
+    user = __import__("muddypoints.users", fromlist=["x"]).get_user(owner["user"]["user_id"])
+    assert [f["file_id"] for f in library.list_files(user, sid, query="public goods")] == [fid]
+    assert library.list_files(user, sid, semester="ws 2026/27")[0]["file_id"] == fid
+    assert library.list_files(user, sid, tag="Externalities")[0]["file_id"] == fid
+    assert library.list_files(user, sid, query="regression") == []
+    client.patch(f"/api/spaces/{sid}/files/{fid}", {"topic": None})
+    assert "topic" not in library.list_files(user, sid)[0]["meta"]
+    pdf = make_pdf(3)
+    monkeypatch.setattr("muddypoints.media.download", lambda url: (pdf, "syllabus"))
+    res = library.import_url(user, sid, "https://seafile.example/f/abc/")
+    assert res["status"] == "added" and res["name"] == "syllabus.pdf" and res["pages"] == 3
+    assert library.import_url(user, sid, "https://seafile.example/f/abc/")["status"] == "exists"
