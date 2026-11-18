@@ -68,8 +68,9 @@ def test_claude_feedback_and_superadmin_list(client, monkeypatch):
     _, key = client.post("/api/me/api-keys", {"label": "Claude"})
     sent.clear()  # drop the registration's verification mail
     import json
-    call = lambda name, args, k=key["key"]: Client().request("POST", f"/mcp/{k}", token=None, raw=json.dumps(
-        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}))[1]["result"]
+    call = lambda name, args, k=key["key"], ua="Claude-User": Client().request("POST", f"/mcp/{k}", token=None, raw=json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}),
+        headers={"user-agent": ua})[1]["result"]
     r = call("send_feedback", {"category": "missing_feature", "summary": "Sessions should take several files",
                                "details": "Week 9 has two lectures.", "context": {"role": "lecturer", "other_tools": ["OLAT"]}})
     assert not r["isError"] and sent[0][0] == "[Muddy Points · Claude feedback] missing_feature: Sessions should take several files"
@@ -82,12 +83,20 @@ def test_claude_feedback_and_superadmin_list(client, monkeypatch):
     register(boss, email="boss@uni.example", name="Boss")
     _verify(boss, "boss@uni.example")
     s, d = boss.get("/api/admin/feedback")
-    assert s == 200 and d["feedback"][0]["source"] == "claude" and d["feedback"][0]["context"]["role"] == "lecturer"
+    assert s == 200 and d["feedback"][0]["source"] == "assistant" and d["feedback"][0]["assistant"] == "Claude"
+    assert d["feedback"][0]["context"]["role"] == "lecturer"
     fid = d["feedback"][0]["feedback_id"]
     assert boss.patch(f"/api/admin/feedback/{fid}", {"done": True})[1]["done"] is True
     assert boss.get("/api/admin/feedback?open=1")[1]["feedback"] == []
+    # ChatGPT is recognised from its user agent; old field name claude_client still accepted
+    sent.clear()
+    r = call("send_feedback", {"category": "bug", "summary": "Image results not shown",
+                               "context": {"claude_client": "desktop_app"}}, ua="openai-mcp/1.0.0")
+    assert not r["isError"] and sent[0][0].startswith("[Muddy Points · ChatGPT feedback] bug:")
+    assert "ai_client: claude_desktop" in sent[0][1]
+    assert boss.get("/api/admin/feedback?source=assistant")[1]["feedback"][0]["assistant"] == "ChatGPT"
     # rate limit: 10 per user per day
-    for i in range(9):
+    for i in range(8):
         call("send_feedback", {"category": "idea", "summary": f"idea number {i}"})
     r = call("send_feedback", {"category": "idea", "summary": "one too many"})
     assert r["isError"] and "limit" in r["content"][0]["text"].lower()

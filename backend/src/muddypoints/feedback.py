@@ -20,7 +20,7 @@ CONTEXT_ENUMS = {
     "teaching_format": ("lecture", "seminar", "flipped_classroom", "online", "other"),
     "course_size": ("<30", "30-100", "100-300", ">300"),
     "semester_phase": ("preparation", "during_semester", "wrap_up"),
-    "claude_client": ("claude_ai", "desktop_app", "claude_code", "mobile", "other"),
+    "ai_client": ("claude_ai", "claude_desktop", "claude_code", "chatgpt", "mobile", "other"),
     "tech_comfort": ("low", "medium", "high"),
 }
 CONTEXT_TEXT = {"discipline": 80, "course_language": 30, "goal": 300}
@@ -34,6 +34,9 @@ def clean_context(context) -> dict:
     if not isinstance(context, dict):
         raise ApiError(400, "invalid_input", "'context' must be an object")
     out = {}
+    legacy = {"desktop_app": "claude_desktop"}
+    if "claude_client" in context and "ai_client" not in context:  # older field name
+        context = {**context, "ai_client": legacy.get(context["claude_client"], context["claude_client"])}
     for key, value in context.items():
         if value in (None, "", []):
             continue
@@ -91,8 +94,18 @@ def submit(data: dict, ip: str, user: dict | None) -> dict:
     return {"ok": True, "mailed": mailed}
 
 
-def submit_from_claude(user: dict, category, summary, details, context=None) -> dict:
-    """Feedback an AI agent sends via MCP about Muddy Points itself (missing tools, bugs, confusing behaviour)."""
+def assistant_name(agent: str) -> str:
+    """Best guess from the MCP request's User-Agent ('Claude-User', 'openai-mcp/…', …)."""
+    a = (agent or "").lower()
+    if "claude" in a or "anthropic" in a:
+        return "Claude"
+    if "openai" in a or "chatgpt" in a:
+        return "ChatGPT"
+    return "AI assistant"
+
+
+def submit_from_assistant(user: dict, category, summary, details, context=None, agent: str = "") -> dict:
+    """Feedback an AI assistant (Claude, ChatGPT, …) sends via MCP about Muddy Points itself."""
     if category not in CATEGORIES:
         raise ApiError(400, "invalid_input", f"'category' must be one of: {', '.join(CATEGORIES)}")
     summary = (summary or "").strip() if isinstance(summary, str) else ""
@@ -106,14 +119,17 @@ def submit_from_claude(user: dict, category, summary, details, context=None) -> 
     if db.bump_counter(f"RATE#mcpfeedback#{user['user_id']}", str(day), int(time.time()) + 2 * 86400) > MAX_MCP_PER_DAY_PER_USER:
         raise ApiError(429, "too_many_requests", "Feedback limit reached for today (10 per user). Try again tomorrow.")
     item_id = sortable_id()
-    db.put({"PK": "FEEDBACK", "SK": f"FEEDBACK#{item_id}", "source": "claude", "category": category,
+    assistant = assistant_name(agent)
+    db.put({"PK": "FEEDBACK", "SK": f"FEEDBACK#{item_id}", "source": "assistant", "assistant": assistant,
+            "agent": (agent or "")[:120], "category": category,
             "summary": summary, "message": details or summary, "user_id": user["user_id"], "user_name": user["name"],
             "context": context or None, "created_at": now_iso()})
-    log_event(logger, logging.INFO, "claude feedback received", feedback_id=item_id, category=category)
+    log_event(logger, logging.INFO, "assistant feedback received", feedback_id=item_id, category=category,
+              assistant=assistant)
     mailed = False
     if settings.feedback_email:
-        mailed = mailer.send(settings.feedback_email, f"[Muddy Points · Claude feedback] {category}: {summary}",
-                             f"From: {user['name']} <{user['email']}> (via Claude)\nTime: {now_iso()}\n"
+        mailed = mailer.send(settings.feedback_email, f"[Muddy Points · {assistant} feedback] {category}: {summary}",
+                             f"From: {user['name']} <{user['email']}> (via {assistant})\nTime: {now_iso()}\n"
                              f"Category: {category}\n\n{summary}\n\n{details}\n\n{_context_lines(context)}",
                              reply_to=user["email"])
     return {"ok": True, "feedback_id": item_id, "mailed": mailed,
@@ -129,9 +145,11 @@ def list_all(user: dict, limit: int = 50, only_open: bool = False, source: str |
     for i in items:
         if only_open and i.get("done"):
             continue
-        if source and i.get("source", "web") != source:
+        item_source = "assistant" if i.get("source") in ("claude", "assistant") else i.get("source", "web")
+        if source and item_source != ("assistant" if source == "claude" else source):
             continue
-        out.append({"feedback_id": i["SK"].split("#", 1)[1], "source": i.get("source", "web"),
+        out.append({"feedback_id": i["SK"].split("#", 1)[1], "source": item_source,
+                    "assistant": i.get("assistant") or ("Claude" if i.get("source") == "claude" else None),
                     "category": i.get("category"), "summary": i.get("summary"), "message": i.get("message"),
                     "context": i.get("context") or {}, "page": i.get("page"), "email": i.get("email"),
                     "user_id": i.get("user_id"), "user_name": i.get("user_name"), "created_at": i.get("created_at"),

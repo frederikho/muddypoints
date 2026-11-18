@@ -1,13 +1,14 @@
 """Remote MCP server (Streamable HTTP transport, stateless, JSON responses).
 
-Connector URL for Claude:  <FunctionUrl>/mcp/<API key>
-(or POST <FunctionUrl>/mcp with header `Authorization: Bearer <API key>`).
-API keys are created per user in the web UI (Account -> Claude / MCP access). Every tool runs with
+Works with any MCP client: Claude (claude.ai, desktop, Claude Code) and ChatGPT (Developer Mode apps).
+Connector URL:  <FunctionUrl>/mcp/<API key>   (or POST <FunctionUrl>/mcp with `Authorization: Bearer <API key>`).
+API keys are created per user in the web UI (Account -> "Use Muddy Points with AI assistants"). Every tool runs with
 that user's permissions, so the owner/editor rules apply exactly as in the web UI.
 
 To add a tool: write a function `(user, args) -> JSON-serialisable` and decorate it with @tool.
 Keep business logic in the service modules (boards.py, spaces.py, ...) — tools are thin wrappers.
 """
+import contextvars
 import json
 import logging
 from typing import Any, Callable
@@ -69,6 +70,9 @@ guess or infer it.
 Testing safely: tools that delete things, post in the user's name or email other people accept dry_run=true - all
 checks run and you get a description of what would happen, nothing changes. Use it when exploring or when unsure.
 For tests with real effects, create a separate test board instead of touching real courses."""
+
+# User-Agent of the current MCP request (e.g. 'Claude-User', 'openai-mcp/1.0'), so feedback knows which assistant sent it
+CLIENT_AGENT: contextvars.ContextVar[str] = contextvars.ContextVar("mcp_client_agent", default="")
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -278,7 +282,7 @@ def _upload_link(user, a):
 
 
 @tool("prepare_slide_upload",
-      "Only for clients with unrestricted network access (e.g. Claude Code), NOT for claude.ai chat sandboxes - use "
+      "Only for clients with unrestricted network access (e.g. Claude Code), NOT for chat sandboxes (claude.ai, ChatGPT) - use "
       "get_upload_link there. Step 1 of a direct upload: returns presigned S3 PUT URLs (valid 1h). PUT each file's "
       "bytes with the given Content-Type header, then call confirm_slide_upload with the upload_keys.",
       {**BOARD, "files": {"type": "array", "items": {"type": "object", "properties": {
@@ -291,9 +295,7 @@ def _prepare(user, a):
             "upload_page_url": page,
             "if_upload_blocked": f"If your sandbox's network policy blocks {host}: give the user this link to upload the "
                                  f"file themselves in one step: {page} (if they want to replace the slides, they choose "
-                                 "'Replace all slides' there). Also mention that adding the domain "
-                                 f"{host} to the allowed domains for code execution in their Claude settings makes chat "
-                                 "attachments work directly next time. A public share link of the file also works "
+                                 "'Replace all slides' there). A public share link of the file also works "
                                  "(import_slides_from_url / replace_board_material)."}
 
 
@@ -357,13 +359,16 @@ def _list_files(user, a):
 
 
 @tool("update_file_metadata", "Set metadata on a workspace file so it can be matched to syllabus weeks reliably: "
-      "lecture_number, topic, semester (e.g. 'WS 2026/27'), tags, notes. Fill it after reading a file; null clears.",
-      {**SPACE, "file_id": S, "lecture_number": {"type": ["integer", "null"]}, "topic": {"type": ["string", "null"]},
-       "semester": {"type": ["string", "null"]}, "tags": {"type": ["array", "null"], "items": S},
-       "notes": {"type": ["string", "null"]}}, ("workspace_id", "file_id"))
+      "lecture_number, topic, semester (e.g. 'WS 2026/27'), tags, notes. Fill it after reading a file. Only the "
+      "fields you pass are changed; list field names in 'clear' to remove them.",
+      {**SPACE, "file_id": S, "lecture_number": {"type": "integer"}, "topic": S, "semester": S,
+       "tags": {"type": "array", "items": S}, "notes": S,
+       "clear": {"type": "array", "items": {"type": "string", "enum": ["lecture_number", "topic", "semester", "tags", "notes"]},
+                 "description": "Fields to remove"}}, ("workspace_id", "file_id"))
 def _update_file_meta(user, a):
-    return library.update_metadata(user, a["workspace_id"], a["file_id"],
-                                   {k: a[k] for k in library.META_FIELDS if k in a})
+    fields = {k: a[k] for k in library.META_FIELDS if k in a}
+    fields.update({k: None for k in (a.get("clear") or []) if k in library.META_FIELDS})
+    return library.update_metadata(user, a["workspace_id"], a["file_id"], fields)
 
 
 @tool("import_file_from_url", "Download a PDF from a URL into the workspace files (direct links and Google Drive, "
@@ -536,17 +541,19 @@ def _archives(user, a):
            "semester_phase": {"type": "string", "enum": ["preparation", "during_semester", "wrap_up"]},
            "goal": {"type": "string", "description": "What the user was trying to achieve"},
            "other_tools": {"type": "array", "items": {"type": "string"}, "description": "e.g. OLAT, Seafile"},
-           "claude_client": {"type": "string", "enum": ["claude_ai", "desktop_app", "claude_code", "mobile", "other"]},
+           "ai_client": {"type": "string", "enum": ["claude_ai", "claude_desktop", "claude_code", "chatgpt", "mobile", "other"],
+                         "description": "Which AI assistant/app the user works with"},
            "tech_comfort": {"type": "string", "enum": ["low", "medium", "high"]}}}},
       ("category", "summary"))
 def _send_feedback(user, a):
     from . import feedback
-    return feedback.submit_from_claude(user, a.get("category"), a.get("summary"), a.get("details"), a.get("context"))
+    return feedback.submit_from_assistant(user, a.get("category"), a.get("summary"), a.get("details"), a.get("context"),
+                                          agent=CLIENT_AGENT.get())
 
 
-@tool("list_feedback", "Platform operators (superadmins) only: feedback from the web form and from Claude sessions, "
+@tool("list_feedback", "Platform operators (superadmins) only: feedback from the web form and from AI assistants, "
       "newest first. Others get 'not found'.",
-      {"only_open": {"type": "boolean", "default": True}, "source": {"type": "string", "enum": ["web", "claude"]},
+      {"only_open": {"type": "boolean", "default": True}, "source": {"type": "string", "enum": ["web", "assistant"]},
        "limit": {"type": "integer", "default": 50}}, read_only=True)
 def _list_feedback(user, a):
     from . import feedback
@@ -632,6 +639,10 @@ def _dispatch(user: dict, msg: dict) -> dict | None:
             return _error(msg_id, -32602, f"Unknown tool: {params.get('name')}")
     if method in ("resources/list", "prompts/list"):
         return _result(msg_id, {method.split("/")[0]: []})
+    if method == "resources/templates/list":
+        return _result(msg_id, {"resourceTemplates": []})
+    if method == "logging/setLevel":
+        return _result(msg_id, {})
     return _error(msg_id, -32601, f"Method not found: {method}")
 
 
@@ -667,8 +678,9 @@ def handle(req: Request) -> dict:
     if not user:
         log_event(logger, logging.WARNING, "mcp unauthorized", **client)
         return json_response(401, _error(None, -32001, "Invalid or missing API key. Create one in the web UI under "
-                                                        "Account -> Claude / MCP access."))
+                                                        "Account -> Use Muddy Points with AI assistants."))
     bind(user_id=user["user_id"], channel="mcp")
+    CLIENT_AGENT.set(client["user_agent"])
     try:
         payload = json.loads(req.raw_body or b"null")
     except (json.JSONDecodeError, UnicodeDecodeError):

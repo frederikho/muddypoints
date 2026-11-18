@@ -105,7 +105,7 @@ Test it with **Forgot your password?** on the login page. Problems show up in th
 
 Alternative: Amazon SES. Verify the sender in SES (same region), request production access (otherwise SES only sends to verified addresses), set only `MAIL_FROM`, and leave `BREVO_API_KEY` unset.
 
-### 5. Connect Claude (MCP): manage boards by chatting
+### 5. Connect Claude or ChatGPT (MCP): manage boards by chatting
 
 Each admin does this once, for their own account. Afterwards you can say things like *"Export this week's comments of Lecture 3"* or *"Replace the slides of Lecture 4 with this PDF: <link>"*.
 
@@ -125,7 +125,13 @@ Each admin does this once, for their own account. Afterwards you can say things 
 1. Start a new chat. In the **+** / tools menu under *Connectors*, make sure **Muddy Points** is switched on.
 2. Ask: *"Which spaces and boards do I have in Muddy Points?"* The first time, Claude may ask permission to use the tools; allow it.
 
-**d) Things to ask Claude**
+**c2) ChatGPT instead of Claude** (the same connector link works)
+1. ChatGPT on the web → **Settings → Apps / Connectors → Advanced** → switch on **Developer mode**. Requires Plus, Pro, Business, Enterprise or Edu (not Free); in Business/Enterprise workspaces an admin may have to allow it. OpenAI moves these menus around, so look for "Developer mode" if the path differs.
+2. **Create** an app: name `Muddy Points`, MCP server URL = your connector link, authentication **No authentication**.
+3. In a new chat: **+ → Developer mode**, tick **Muddy Points**, then ask *"Which boards do I have?"* ChatGPT asks for confirmation before every action that changes something (reading never asks).
+4. When Muddy Points gets new features, refresh the app's tools in ChatGPT (app settings → Refresh) and start a new chat.
+
+**d) Things to ask Claude or ChatGPT**
 - *"Give me an upload link for my lecture PDFs"*. You drag them in, then: *"Read them and put the right one on the ERE board"*.
 - *"Plan the ERE board for the semester from the syllabus"*. Claude proposes the dates and times, you confirm, and it saves the schedule.
 - *"What did we show in week 10 last year? Put it up again."* (board history)

@@ -251,3 +251,20 @@ def test_dry_run_changes_nothing(mcp, client, owner):
     # checks still apply in dry runs
     text, err = mcp.call("delete_comment", board_id=bid, comment_id="nope", dry_run=True)
     assert err and "Comment 'nope' not found" in text
+
+
+def test_chatgpt_compat(mcp, client, owner):
+    import json as _json
+    from test_library import drop_upload, link_token, make_text_pdf
+    # extra protocol requests some clients send
+    assert mcp("resources/templates/list")[1]["result"] == {"resourceTemplates": []}
+    assert mcp("logging/setLevel", {"level": "info"})[1]["result"] == {}
+    # no tool schema uses type arrays (stricter JSON-schema validators reject them)
+    tools = mcp("tools/list")[1]["result"]["tools"]
+    assert not [t["name"] for t in tools if '"type": [' in _json.dumps(t["inputSchema"])]
+    # update_file_metadata: 'clear' removes fields
+    fid = drop_upload(link_token(client, owner["space_id"]), [("L1.pdf", make_text_pdf(["x"]))])[0]["file_id"]
+    res, _ = mcp.call("update_file_metadata", workspace_id=owner["space_id"], file_id=fid, topic="Markets", lecture_number=3)
+    assert res["meta"] == {"lecture_number": 3, "topic": "Markets"}
+    res, _ = mcp.call("update_file_metadata", workspace_id=owner["space_id"], file_id=fid, clear=["topic"])
+    assert res["meta"] == {"lecture_number": 3}

@@ -159,20 +159,19 @@ function authView(tab = "login") {
         feature("🔗", "One link per class", "Replace the material every week; the link and students' bookmarks stay the same. Old comments are archived as PDF."),
         feature("📄", "PDF export", "Every slide with its comments in one tidy PDF, ready to share with your team or upload to your course platform."),
         feature("👥", "Teaching teams", "Share a workspace with colleagues and tutors: boards, files and lecture slides are shared."),
-        feature("✨", "Works with Claude", "Connect Claude and just ask: “export this week's questions and put up lecture 5”."))),
+        feature("✨", "Works with Claude & ChatGPT", "Connect your AI assistant and just ask: “export this week's questions and put up lecture 5”."))),
     el("section", { class: "ai-section" },
-      el("div", { class: "eyebrow center ai-eyebrow" }, spark(), "Works with Claude"),
+      el("div", { class: "eyebrow center ai-eyebrow" }, spark(), "Works with Claude and ChatGPT"),
       el("h2", { class: "center" }, "Run your boards by chatting"),
-      el("p", { class: "lead center ai-lead" }, "Connect once, then just say what you need. Muddy Points itself is free; Claude runs on your own Claude plan."),
+      el("p", { class: "lead center ai-lead" }, "Connect once, then just say what you need. Muddy Points itself is free; the assistant runs on your own Claude or ChatGPT plan."),
       el("div", { class: "ai-demo" }, tiles, chat),
       el("div", { class: "ai-setup" },
         el("span", { class: "ai-setup-step" }, el("b", {}, "1"), "Create a key"),
         el("span", { class: "ai-arrow" }, "→"),
-        el("span", { class: "ai-setup-step" }, el("b", {}, "2"), "Paste it in Claude → Connectors"),
+        el("span", { class: "ai-setup-step" }, el("b", {}, "2"), "Add it in Claude or ChatGPT"),
         el("span", { class: "ai-arrow" }, "→"),
         el("span", { class: "ai-setup-step" }, el("b", {}, "3"), "Just ask")),
-      el("p", { class: "muted small center" }, "Claude only acts with your permissions; keys can be revoked any time. ",
-        el("span", { class: "soon" }, "ChatGPT support coming soon."))),
+      el("p", { class: "muted small center" }, "The assistant only acts with your permissions; keys can be revoked any time.")),
     el("section", { class: "auth-section" },
       el("div", {}, el("h2", {}, "Ready for your next lecture?"),
         el("div", { class: "free-badge" }, "100% free, for staff and students"),
@@ -574,7 +573,7 @@ async function accountView() {
   const copyBtn = (text, label = "Copy") => el("button", { class: "sm", type: "button", onclick: () => copyText(text) }, `📋 ${label}`);
   const newKeyBox = el("div", { id: "new-key" });
   const createBtn = el("button", { class: "primary", type: "button", onclick: () => busy(createBtn, async () => {
-    const k = await api("POST", "/api/me/api-keys", { label: `Claude (${new Date().toLocaleDateString()})` });
+    const k = await api("POST", "/api/me/api-keys", { label: `AI assistant (${new Date().toLocaleDateString()})` });
     const url = `${API_ORIGIN}/mcp/${k.key}`;
     await refresh();
     document.getElementById("new-key").replaceChildren(el("div", { class: "alert ok stack" },
@@ -584,17 +583,38 @@ async function accountView() {
     el("td", {}, el("strong", {}, k.label), el("div", { class: "muted small" }, `${k.prefix}…`)),
     el("td", { class: "muted small" }, k.last_used_at ? `last used ${fmtDate(k.last_used_at)}` : "never used"),
     el("td", { style: "text-align:right" }, el("button", { class: "sm danger", onclick: async () => {
-      if (!confirm(`Revoke “${k.label}”? Claude stops working with it.`)) return;
+      if (!confirm(`Revoke “${k.label}”? Assistants using it stop working.`)) return;
       await api("DELETE", `/api/me/api-keys/${k.key_id}`).catch(showError); refresh();
     } }, "Revoke"))));
+  const steps = {
+    claude: [
+      el("li", {}, "In Claude (claude.ai or the desktop app): ", el("strong", {}, "Settings → Connectors → Add custom connector"), "."),
+      el("li", {}, "Name ", el("code", {}, "Muddy Points"), " ", copyBtn("Muddy Points"), ", paste the link, click ", el("strong", {}, "Add"), "."),
+      el("li", {}, "Start a new chat and ask: “Which boards do I have?”")],
+    chatgpt: [
+      el("li", {}, "In ChatGPT (web): ", el("strong", {}, "Settings → Apps / Connectors → Advanced"), ", switch on ", el("strong", {}, "Developer mode"), ". Needs Plus, Pro, Business, Enterprise or Edu; on Business/Enterprise an admin may have to allow it."),
+      el("li", {}, el("strong", {}, "Create"), " an app: name ", el("code", {}, "Muddy Points"), " ", copyBtn("Muddy Points"), ", paste the link as MCP server URL, authentication ", el("strong", {}, "No authentication"), "."),
+      el("li", {}, "In a new chat open ", el("strong", {}, "+ → Developer mode"), ", tick Muddy Points and ask: “Which boards do I have?” ChatGPT asks before it changes anything.")],
+  };
+  const stepList = el("ol", { class: "steps-list", start: 2 });
+  const tabBtns = {};
+  const showTab = (name) => {
+    stepList.replaceChildren(...steps[name]);
+    for (const [k, b] of Object.entries(tabBtns)) b.classList.toggle("active", k === name);
+    try { localStorage.setItem("muddypoints.aiTab", name); } catch { /* ignore */ }
+  };
+  for (const [k, label] of [["claude", "Claude"], ["chatgpt", "ChatGPT"]]) {
+    tabBtns[k] = el("button", { type: "button", onclick: () => showTab(k) }, label);
+  }
+  let savedTab = "claude";
+  try { savedTab = localStorage.getItem("muddypoints.aiTab") || "claude"; } catch { /* ignore */ }
+  showTab(steps[savedTab] ? savedTab : "claude");
   const claudeBox = el("div", { class: "card stack", style: "margin-top:16px" },
-    el("h2", {}, "Use Muddy Points in Claude"),
-    el("ol", { class: "steps-list" },
-      el("li", {}, createBtn, newKeyBox),
-      el("li", {}, "In Claude: ", el("strong", {}, "Settings → Connectors → Add custom connector"), ". Name ",
-        el("code", {}, "Muddy Points"), " ", copyBtn("Muddy Points"), ", paste the link, click ", el("strong", {}, "Add"), "."),
-      el("li", {}, "Start a new chat and ask: “Which boards do I have?”")),
-    el("p", { class: "muted small" }, "Keep the link private. Lost it? Revoke it and create a new one."),
+    el("h2", {}, "Use Muddy Points with AI assistants"),
+    el("div", { class: "tabs", style: "margin-bottom:4px" }, ...Object.values(tabBtns)),
+    el("ol", { class: "steps-list" }, el("li", {}, createBtn, newKeyBox)),
+    stepList,
+    el("p", { class: "muted small" }, "One link works for both. Keep it private. Lost it? Revoke it and create a new one."),
     api_keys.length ? el("details", {}, el("summary", { class: "small" }, `Your connector links (${api_keys.length})`),
       el("table", {}, el("tbody", {}, keyRows))) : "");
 

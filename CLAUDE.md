@@ -74,7 +74,11 @@ S3 layout: `blobs/<sha256>.pdf` + `blobs/<sha256>.text.json` (content-addressed 
 When you add an access pattern that needs a new index, add it to **both** `template.yaml` and `localinfra.py` (tests and the dev server use the latter).
 
 ## MCP server
-Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bearer <api key>`). Each user creates keys in the web UI under Account. Tools run with that user's permissions.
+Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bearer <api key>`). Each user creates keys in the web UI under Account. Tools run with that user's permissions. The same link works in **Claude** (claude.ai/desktop/Claude Code: custom connector) and **ChatGPT** (Developer mode app, "No authentication"). Keep tools client-neutral:
+- **ChatGPT gates every tool without `readOnlyHint: true` behind a confirmation** → mark pure reads `read_only=True`, and only those.
+- ChatGPT may not use the server `instructions` → put rules that matter (confirm before posting, only consented feedback context, …) **in the tool description** too.
+- Avoid JSON-schema type arrays (`"type": ["string", "null"]`); use plain types (+ e.g. a `clear` list). A test enforces this (`test_chatgpt_compat`).
+- Feedback records which assistant sent it from the request's User-Agent (`feedback.assistant_name`: Claude / ChatGPT / AI assistant).
 
 | Tool | Purpose |
 |---|---|
