@@ -7,6 +7,7 @@ S3 layout:
   archive/<board_id>/<timestamp>.pdf          exports made automatically before a board is cleared (kept)
 """
 import ipaddress
+import re
 import logging
 import socket
 import urllib.parse
@@ -136,6 +137,15 @@ def _normalize_share_link(url: str) -> str:
         q = urllib.parse.parse_qs(parsed.query)
         q["dl"] = ["1"]
         return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(q, doseq=True)))
+    # Seafile file share link: https://<seafile-host>/f/<token>/ -> ?dl=1 downloads the file
+    if re.fullmatch(r"/f/[A-Za-z0-9]+/?", parsed.path):
+        q = urllib.parse.parse_qs(parsed.query)
+        q["dl"] = ["1"]
+        return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(q, doseq=True)))
+    # Nextcloud / ownCloud / sciebo public share: https://<host>[/index.php]/s/<token> -> .../s/<token>/download
+    m = re.fullmatch(r"(/(?:index\.php/)?s/[A-Za-z0-9]+)/?", parsed.path)
+    if m:
+        return urllib.parse.urlunparse(parsed._replace(path=m.group(1) + "/download"))
     return url
 
 

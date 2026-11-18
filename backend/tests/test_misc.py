@@ -53,6 +53,12 @@ def test_share_link_normalization():
     assert media._normalize_share_link("https://drive.google.com/file/d/ABC123/view?usp=sharing") == \
         "https://drive.google.com/uc?export=download&id=ABC123"
     assert "dl=1" in media._normalize_share_link("https://www.dropbox.com/s/xyz/a.pdf?dl=0")
+    assert media._normalize_share_link("https://seafile.uni-example.de/f/3a9c1b2e7d/") == \
+        "https://seafile.uni-example.de/f/3a9c1b2e7d/?dl=1"
+    assert media._normalize_share_link("https://sciebo.de/s/AbC123xyz") == "https://sciebo.de/s/AbC123xyz/download"
+    assert media._normalize_share_link("https://cloud.example.org/index.php/s/Zz9/") == \
+        "https://cloud.example.org/index.php/s/Zz9/download"
+    assert media._normalize_share_link("https://example.org/lecture.pdf") == "https://example.org/lecture.pdf"
 
 
 def test_api_key_never_logged(client):

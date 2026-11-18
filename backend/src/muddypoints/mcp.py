@@ -177,7 +177,7 @@ def _delete_comment(user, a):
 # --- slides ---------------------------------------------------------------------------------
 
 @tool("import_slides_from_url",
-      "Download a PDF or image from a public URL (direct link, Google Drive or Dropbox share link) and turn it into "
+      "Download a PDF or image from a URL (direct link, or a share link from Google Drive, Dropbox, Seafile, Nextcloud/sciebo) and turn it into "
       "slides (one per PDF page).", {**BOARD, "url": S, **MODE}, ("board_id", "url"))
 def _import_url(user, a):
     return uploads.import_from_url(user, a["board_id"], a.get("url"), a.get("mode", "append"), a.get("archive", True))
