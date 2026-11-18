@@ -98,6 +98,8 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 
 \* owner only.
 
+**New tools don't show up in Claude (known behaviour, seen 2026-11-18):** claude.ai loads a connector's tool list when a chat starts and keeps it for that chat; "refresh" inside an open chat only re-reads the cache. After deploying new/changed tools, tell the user to **start a new chat** (if that is not enough: Settings → Connectors → Muddy Points → disconnect/connect, then a new chat). To prove the server side, check the logs for `"rpc": "tools/list"` after the deploy time, or count `@tool(` in the deployed code (`aws lambda get-function --function-name muddypoints-api` → Code.Location zip). Mention this to the user whenever a change adds or renames MCP tools.
+
 **Adding a tool:** put the logic in a service module, then add a `@tool(...)` wrapper in `mcp.py` with a JSON-schema `properties` dict and `destructive=True`/`read_only=True` as appropriate. Add a test in `backend/tests/test_mcp.py` and update the table above. Errors are raised as `ApiError` and become `isError` tool results automatically.
 
 **Typical admin requests and how to handle them**

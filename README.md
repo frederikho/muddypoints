@@ -141,6 +141,7 @@ Good to know:
 - Claude acts with **your** permissions. Editors can't delete things via Claude either.
 - Treat the URL like a password. Revoke it any time on the same page (Claude / MCP access → **Revoke**) and create a new one.
 - Nothing happens? Ask an owner to check the logs, or ask Claude *"show the Muddy Points errors of the last hour"* once the connector works for someone.
+- **Claude doesn't know a new Muddy Points feature/tool?** Claude loads the tool list when a chat starts and keeps it for that chat. **Start a new chat.** If that doesn't help: Settings → Connectors → Muddy Points → disconnect and connect again, then start a new chat.
 
 ### 6. Change the app with Claude (claude.ai/code)
 
