@@ -25,6 +25,11 @@ Parameters:
     Default: ""
     NoEcho: true
     Description: Private address that receives the feedback form (GitHub secret FEEDBACK_EMAIL). Empty = only stored.
+  SuperadminEmails:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Comma separated emails of the operator(s) who can see all workspaces (GitHub secret SUPERADMIN_EMAILS).
   AllowedEmailDomains:
     Type: String
     Default: ""
@@ -108,6 +113,7 @@ Resources:
           MAIL_FROM: !Ref MailFrom
           BREVO_API_KEY: !Ref BrevoApiKey
           FEEDBACK_EMAIL: !Ref FeedbackEmail
+          SUPERADMIN_EMAILS: !Ref SuperadminEmails
           ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
           LOG_LEVEL: !Ref LogLevel
           LOG_GROUP_NAME: !Ref ApiLogGroup

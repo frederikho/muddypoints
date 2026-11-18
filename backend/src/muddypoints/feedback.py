@@ -15,7 +15,7 @@ MAX_PER_HOUR_PER_IP = 5
 def submit(data: dict, ip: str, user: dict | None) -> dict:
     if (data.get("website") or "").strip():  # honeypot field, invisible to humans
         log_event(logger, logging.INFO, "feedback honeypot triggered")
-        return {"ok": True}
+        return {"ok": True, "mailed": True}
     message = (data.get("message") or "").strip() if isinstance(data.get("message"), str) else ""
     if len(message) < 5:
         raise ApiError(400, "invalid_input", "Please write a few words")
@@ -33,8 +33,12 @@ def submit(data: dict, ip: str, user: dict | None) -> dict:
     db.put({"PK": "FEEDBACK", "SK": f"FEEDBACK#{item_id}", "message": message, "email": email or None,
             "user_id": user["user_id"] if user else None, "page": page, "created_at": now_iso()})
     log_event(logger, logging.INFO, "feedback received", feedback_id=item_id, chars=len(message))
+    mailed = False
     if settings.feedback_email:
-        mailer.send(settings.feedback_email, "Muddy Points feedback",
-                    f"From: {sender}\nPage: {page}\nTime: {now_iso()}\n\n{message}\n",
-                    reply_to=email or (user["email"] if user else None))
-    return {"ok": True}
+        mailed = mailer.send(settings.feedback_email, "Muddy Points feedback",
+                             f"From: {sender}\nPage: {page}\nTime: {now_iso()}\n\n{message}\n",
+                             reply_to=email or (user["email"] if user else None))
+    else:
+        log_event(logger, logging.WARNING, "feedback stored but not mailed (FEEDBACK_EMAIL unset)", feedback_id=item_id)
+    # `mailed` lets the page say the truth: the message is always stored, but only "sent" if the mail went out
+    return {"ok": True, "mailed": mailed}

@@ -8,6 +8,7 @@ function renderNav() {
   const user = session.user;
   nav.replaceChildren(...(user ? [
     el("a", { href: "#/" }, "Workspaces"),
+    user.is_superadmin ? el("a", { href: "#/admin" }, "Admin") : "",
     el("a", { href: "#/account" }, user.name),
     el("button", { class: "ghost sm", onclick: () => { session.clear(); location.hash = "#/"; route(); } }, "Log out"),
   ] : []));
@@ -204,6 +205,27 @@ async function spacesView() {
         : el("p", { class: "muted" }, "No workspaces yet. A workspace is your teaching team; inside it you create one board per course. Use “+ New workspace” above.")));
 }
 
+// --- operator view: every workspace on the platform (read-only; only for SUPERADMIN_EMAILS) ---------
+async function adminView() {
+  const { spaces } = await api("GET", "/api/admin/spaces");
+  spaces.sort((a, b) => (b.last_activity_at || "").localeCompare(a.last_activity_at || ""));
+  const row = (s) => el("tr", {},
+    el("td", {}, el("strong", {}, s.name), el("div", { class: "muted small" }, s.space_id)),
+    el("td", {}, s.members.map((m) => el("div", { class: "small" }, `${m.name} `, el("span", { class: "muted" }, `${m.email} · ${m.role}`)))),
+    el("td", {}, s.board_count
+      ? [...s.boards.map((b) => el("div", { class: "small" }, el("a", { href: `board.html?b=${b.board_id}` }, b.name))),
+         s.board_count > s.boards.length ? el("div", { class: "muted small" }, `+${s.board_count - s.boards.length} more`) : ""]
+      : el("span", { class: "muted small" }, "–")),
+    el("td", { class: "small" }, s.last_activity_at ? el("span", { title: fmtDate(s.last_activity_at) }, timeAgo(s.last_activity_at)) : "–",
+      s.last_activity_by ? el("div", { class: "muted" }, s.last_activity_by) : ""));
+  main.replaceChildren(
+    el("h1", { style: "margin-top:0" }, `All workspaces (${spaces.length})`),
+    el("p", { class: "muted small" }, "Operator view, read-only. Only visible to accounts listed in SUPERADMIN_EMAILS with a confirmed email address."),
+    el("div", { class: "card", style: "padding:4px 12px;overflow-x:auto" },
+      el("table", {}, el("thead", {}, el("tr", {}, ["Workspace", "Members", "Boards", "Last activity"].map((h) => el("th", {}, h)))),
+        el("tbody", {}, spaces.map(row)))));
+}
+
 // --- workspace files ---------------------------------------------------------------------------
 
 // Opens a fresh upload link in a new tab (window opened synchronously so popup blockers don't interfere).
@@ -384,7 +406,10 @@ async function accountView() {
 
   const nameInput = el("input", { type: "text", value: user.name, maxlength: 80 });
   const profile = el("form", { class: "card stack" }, el("h2", {}, "Profile"),
-    el("div", {}, el("label", {}, "Email"), el("div", { class: "muted" }, user.email)),
+    el("div", {}, el("label", {}, "Email"), el("div", { class: "muted" }, user.email, " ",
+      user.email_verified ? el("span", {}, "✓ confirmed") : el("span", {}, "· not confirmed yet"))),
+    user.email_verified ? "" : el("div", { class: "alert" }, "Please confirm your email address with the link we sent you. ",
+      el("a", { href: "#", onclick: (e) => { e.preventDefault(); busy(e.target, async () => { await api("POST", "/api/me/verify-email"); toast("Verification email sent"); }); } }, "Send it again")),
     el("div", {}, el("label", {}, "Name"), nameInput),
     el("button", { class: "primary", type: "submit" }, "Save"));
   profile.addEventListener("submit", (e) => {
@@ -457,6 +482,7 @@ async function route() {
   try {
     if (view === "space" && id) await spaceView(id);
     else if (view === "account") await accountView();
+    else if (view === "admin") await adminView();
     else await spacesView();
   } catch (e) {
     if (!session.token) return authView();

@@ -29,6 +29,9 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; } h3 { font-size: 1rem; }
 .topbar .brand { font-weight: 700; color: var(--text); display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
 .logo { width: 28px; height: 28px; display: block; }
 .topbar .spacer { flex: 1; }
+/* sticky footer: on short pages the footer sits at the bottom of the window */
+body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+body > main { flex: 1 0 auto; width: 100%; box-sizing: border-box; }
 .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
 .narrow { max-width: 440px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

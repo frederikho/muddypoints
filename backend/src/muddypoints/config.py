@@ -52,6 +52,12 @@ class Settings:
         return [d.strip().lower().lstrip("@") for d in _env("ALLOWED_EMAIL_DOMAINS").split(",") if d.strip()]
 
     @property
+    def superadmin_emails(self) -> list[str]:
+        """Comma separated emails of the platform operator(s) who may see all workspaces (GitHub secret
+        SUPERADMIN_EMAILS). Only counts for accounts whose email address is verified."""
+        return [e.strip().lower() for e in _env("SUPERADMIN_EMAILS").split(",") if e.strip()]
+
+    @property
     def log_level(self) -> str:
         return _env("LOG_LEVEL", "INFO").upper()
 
@@ -74,6 +80,8 @@ settings = Settings()
 SESSION_TTL_SECONDS = 14 * 24 * 3600
 ANON_TTL_SECONDS = 7 * 24 * 3600
 RESET_TTL_SECONDS = 3600
+VERIFY_TTL_SECONDS = 7 * 24 * 3600
+VERIFY_RESEND_SECONDS = 60
 UPLOAD_URL_TTL_SECONDS = 3600
 MEDIA_URL_TTL_SECONDS = 6 * 3600
 MAX_COMMENT_LENGTH = 2000

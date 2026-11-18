@@ -160,6 +160,22 @@ def query_gsi1(pk: str, sk_prefix: str | None = None) -> list[dict]:
     return _paginate(IndexName="GSI1", KeyConditionExpression=cond)
 
 
+def all_space_ids() -> list[str]:
+    """Every workspace id. A filtered Scan is fine here: it is only used by the operator's admin view and the
+    table is small (one META item per workspace among its boards, slides and comments)."""
+    ids, start = [], None
+    while True:
+        kwargs = {"FilterExpression": Attr("SK").eq("META") & Attr("PK").begins_with("SPACE#"),
+                  "ProjectionExpression": "PK"}
+        if start:
+            kwargs["ExclusiveStartKey"] = start
+        resp = aws.table().scan(**kwargs)
+        ids.extend(i["PK"].split("#", 1)[1] for i in resp.get("Items", []))
+        start = resp.get("LastEvaluatedKey")
+        if not start:
+            return ids
+
+
 def batch_get(keys: list[tuple[str, str]]) -> list[dict]:
     out: list[dict] = []
     keys = list(dict.fromkeys(keys))

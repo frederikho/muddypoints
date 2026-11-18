@@ -211,9 +211,10 @@ export function openFeedback() {
     e.preventDefault();
     busy(form.querySelector("button[type=submit]"), async () => {
       try {
-        await api("POST", "/api/feedback", { message: message.value, email: email.value, website: honeypot.value,
+        const res = await api("POST", "/api/feedback", { message: message.value, email: email.value, website: honeypot.value,
           page: location.pathname + location.search });
-        form.replaceChildren(el("h2", {}, "Thank you! 🙌"), el("p", { class: "muted" }, "Your message has been sent."),
+        form.replaceChildren(el("h2", {}, "Thank you! 🙌"), el("p", { class: "muted" }, res.mailed ? "Your message has been sent."
+          : "Your message was saved, but the email to the maintainer could not be sent, so it may take a while until someone reads it."),
           el("div", { class: "row", style: "justify-content:flex-end" }, el("button", { class: "primary", type: "button", onclick: close }, "Close")));
       } catch (err) {
         status.replaceChildren(el("div", { class: "alert" }, err.message));

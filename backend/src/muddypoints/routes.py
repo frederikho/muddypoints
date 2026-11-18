@@ -5,7 +5,7 @@ Anonymous students send `X-Anon-Token: <token from POST /api/identity>`.
 """
 import logging
 
-from . import applogs, boards, export, feedback, identity, library, spaces, uploads, users
+from . import admin, applogs, boards, export, feedback, identity, library, spaces, uploads, users
 from .http import ApiError, Request, Router
 from .log import bind, get_logger, log_event
 
@@ -120,6 +120,21 @@ def reset(req):
     d = body(req)
     user, token = users.reset_password(d.get("token"), d.get("password"))
     return {"user": users.public_user(user), "token": token}
+
+
+@router.route("POST", "/api/auth/verify")
+def verify(req):
+    return {"user": users.public_user(users.verify_email(body(req).get("token")))}
+
+
+@router.route("POST", "/api/me/verify-email")
+def resend_verification(req):
+    return users.resend_verification(require_user(req))
+
+
+@router.route("GET", "/api/admin/spaces")
+def admin_spaces(req):
+    return {"spaces": admin.list_all_spaces(require_user(req))}
 
 
 @router.route("GET", "/api/me")

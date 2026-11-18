@@ -2,8 +2,8 @@
 import logging
 import time
 
-from . import auth, db, mailer
-from .config import RESET_TTL_SECONDS, SESSION_TTL_SECONDS, settings
+from . import admin, auth, db, mailer
+from .config import RESET_TTL_SECONDS, SESSION_TTL_SECONDS, VERIFY_RESEND_SECONDS, VERIFY_TTL_SECONDS, settings
 from .http import ApiError
 from .log import get_logger, log_event
 from .util import EMAIL_RE, clean_name, new_id, normalize_email, now_iso
@@ -14,7 +14,8 @@ MIN_PASSWORD_LENGTH = 8
 
 def public_user(item: dict) -> dict:
     return {"user_id": item["user_id"], "email": item["email"], "name": item["name"],
-            "created_at": item.get("created_at")}
+            "created_at": item.get("created_at"), "email_verified": bool(item.get("email_verified_at")),
+            "is_superadmin": admin.is_superadmin(item)}
 
 
 def _check_password(password) -> str:
@@ -62,7 +63,42 @@ def register(email, password, name) -> dict:
     log_event(logger, logging.INFO, "user registered", new_user_id=user_id)
     from . import spaces  # local import: spaces depends on users
     spaces.accept_pending_invites(item)
+    send_verification_email(item)  # best effort; access is not restricted before verification
     return item
+
+
+def send_verification_email(user: dict) -> bool:
+    """Mail a signed, stateless link (no DB item needed). Never raises: mail problems are logged by the mailer."""
+    token = auth.sign({"t": "v", "uid": user["user_id"], "em": user["email"]}, VERIFY_TTL_SECONDS)
+    link = f"{settings.frontend_url}/verify.html?token={token}"
+    sent = mailer.send(user["email"], "Confirm your email address",
+                       f"Hi {user['name']},\n\nplease confirm your email address by opening this link:\n\n{link}\n\n"
+                       "If you did not create a Muddy Points account, you can ignore this email.\n")
+    db.update(f"USER#{user['user_id']}", "PROFILE", {"verification_sent_at": int(time.time())})
+    return sent
+
+
+def resend_verification(user: dict) -> dict:
+    if user.get("email_verified_at"):
+        return {"already_verified": True}
+    if not mailer.is_configured():
+        raise ApiError(503, "email_not_configured",
+                       "This server can't send emails right now. Please contact your administrator.")
+    if time.time() - user.get("verification_sent_at", 0) < VERIFY_RESEND_SECONDS:
+        raise ApiError(429, "too_soon", "A verification email was just sent. Please wait a minute before asking again.")
+    send_verification_email(user)
+    return {"already_verified": False}
+
+
+def verify_email(token) -> dict:
+    payload = auth.unsign(token, "v") if isinstance(token, str) else None
+    user = get_user(payload["uid"]) if payload else None
+    if not user or user["email"] != payload.get("em"):
+        raise ApiError(400, "invalid_token", "This verification link is invalid or expired")
+    if not user.get("email_verified_at"):
+        user = db.update(f"USER#{user['user_id']}", "PROFILE", {"email_verified_at": now_iso()})
+        log_event(logger, logging.INFO, "email verified", user_id=user["user_id"])
+    return user
 
 
 def issue_session(user: dict) -> str:
@@ -89,7 +125,15 @@ def user_from_session(token: str) -> dict | None:
 
 
 def request_password_reset(email) -> None:
-    """Always succeeds from the caller's view (no account enumeration)."""
+    """Succeeds from the caller's view whether or not the account exists (no account enumeration).
+
+    Fails loudly only when the server cannot send email at all. That is a server setting and says nothing
+    about the account, so it leaks nothing and avoids promising a mail that will never arrive.
+    """
+    if not mailer.is_configured():
+        log_event(logger, logging.ERROR, "password reset requested but email is not configured (MAIL_FROM unset)")
+        raise ApiError(503, "email_not_configured",
+                       "This server can't send emails right now, so we can't send a reset link. Please contact your administrator.")
     user = get_user_by_email(email if isinstance(email, str) else "")
     if not user:
         log_event(logger, logging.INFO, "password reset requested for unknown email")

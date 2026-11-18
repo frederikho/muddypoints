@@ -63,6 +63,7 @@ jobs:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           FEEDBACK_EMAIL: ${{ secrets.FEEDBACK_EMAIL }}
+          SUPERADMIN_EMAILS: ${{ secrets.SUPERADMIN_EMAILS }}
           FRONTEND_URL: ${{ steps.frontend.outputs.url }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
           ALLOWED_EMAIL_DOMAINS: ${{ vars.ALLOWED_EMAIL_DOMAINS }}
@@ -73,6 +74,7 @@ jobs:
           [ -n "$MAIL_FROM" ] && params+=("MailFrom=$MAIL_FROM")
           [ -n "$BREVO_API_KEY" ] && params+=("BrevoApiKey=$BREVO_API_KEY")
           [ -n "$FEEDBACK_EMAIL" ] && params+=("FeedbackEmail=$FEEDBACK_EMAIL")
+          [ -n "$SUPERADMIN_EMAILS" ] && params+=("SuperadminEmails=$SUPERADMIN_EMAILS")
           [ -n "$ALLOWED_EMAIL_DOMAINS" ] && params+=("AllowedEmailDomains=$ALLOWED_EMAIL_DOMAINS")
           sam deploy --stack-name "$STACK_NAME" --no-confirm-changeset --no-fail-on-empty-changeset \
             --parameter-overrides "${params[@]}"

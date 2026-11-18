@@ -32,6 +32,10 @@ Users see **Workspace → Board → (Session) → Slides/Comments**, plus shared
 - Comments can be deleted by their author (anonymous or not) and by any workspace member.
 - Locked boards: non-members can't comment or like; staff still can.
 - A workspace always keeps at least one owner.
+- **Superadmin** (the platform operator): emails in the `SUPERADMIN_EMAILS` GitHub **secret** (never in the repo) → `admin.py`. Only counts when the account's email is **verified**. Gets a read-only overview of all workspaces (`GET /api/admin/spaces`, `#/admin` in the dashboard, with member emails); everyone else gets 404. It does not grant access to workspace contents or write rights, and has no MCP tool.
+
+## Email
+Registration sends a verification mail (signed stateless token, 7 days, `verify.html`); access is **not** restricted before verification. All mails go out as plain text plus an HTML twin with clickable links (`mailer.to_html`). Brevo answers 201 and rejects bad senders / blocked IPs **afterwards**, so check Brevo's event log (or run the opt-in `tests/test_brevo_live.py`) rather than trusting "email sent" in our log. `MAIL_FROM` must be a Brevo-verified sender; in Brevo disable the unknown-IP blocking (Lambda has no fixed IP).
 
 ## Schedules (`schedule.py`, `notify.py`)
 - A board shows a sequence of **sessions** (`BOARD#<bid>/SESSION#<id>`: workspace file + `starts_at` in UTC, status `planned → switching → live → done` / `skipped` / `failed`). Board META has `timezone` (default `Europe/Berlin`) and `next_switch_at`.

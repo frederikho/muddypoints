@@ -57,7 +57,15 @@ def test_unauthorized(client):
     assert client.get("/api/me", token="garbage")[0] == 401
 
 
+def test_password_reset_refused_when_email_not_configured(client):
+    register(client)
+    for email in ("alice@uni.example", "nobody@uni.example"):  # same answer either way: no enumeration
+        s, d = client.post("/api/auth/forgot", {"email": email}, token=None)
+        assert s == 503 and d["error"]["code"] == "email_not_configured"
+
+
 def test_password_reset_flow(client, monkeypatch):
+    monkeypatch.setenv("MAIL_FROM", "boards@uni.example")
     register(client)
     old_token = client.token
     sent = []
@@ -110,3 +118,69 @@ def test_api_keys(client):
     assert "hash" not in d["api_keys"][0]
     assert client.delete(f"/api/me/api-keys/{key['key_id']}")[0] == 200
     assert client.get("/api/me", token=key["key"])[0] == 401
+
+
+def _capture_mail(monkeypatch):
+    sent = []
+    monkeypatch.setenv("MAIL_FROM", "boards@uni.example")
+    monkeypatch.setattr("muddypoints.mailer.send", lambda to, subject, body: sent.append((to, subject, body)) or True)
+    return sent
+
+
+def _token(mail):
+    link = next(w for w in mail[2].split() if w.startswith("https://"))
+    assert link.startswith("https://example.github.io/muddypoints/verify.html?token=")
+    return link.split("token=")[1]
+
+
+def test_register_sends_verification_mail_and_verify_works(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    user = register(client)
+    assert user["email_verified"] is False
+    assert len(sent) == 1 and sent[0][0] == "alice@uni.example"
+    # not verified yet, but access is not restricted
+    assert client.get("/api/me")[1]["user"]["email_verified"] is False
+    assert client.get("/api/spaces")[0] == 200
+    s, d = client.post("/api/auth/verify", {"token": _token(sent[0])}, token=None)
+    assert s == 200 and d["user"]["email_verified"] is True
+    assert client.get("/api/me")[1]["user"]["email_verified"] is True
+    # idempotent
+    assert client.post("/api/auth/verify", {"token": _token(sent[0])}, token=None)[0] == 200
+
+
+def test_verify_rejects_bad_tokens(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    register(client)
+    reset_like = auth.sign({"t": "s", "uid": "x"}, 60)  # wrong token kind
+    for bad in (None, "", "garbage", reset_like, auth.sign({"t": "v", "uid": "x", "em": "a@b.c"}, -1)):
+        assert client.post("/api/auth/verify", {"token": bad}, token=None)[0] == 400
+    # token for a different email than the account's is rejected
+    uid = db.get("EMAIL#alice@uni.example", "EMAIL")["user_id"]
+    assert client.post("/api/auth/verify", {"token": auth.sign({"t": "v", "uid": uid, "em": "other@uni.example"}, 60)},
+                       token=None)[0] == 400
+    assert client.get("/api/me")[1]["user"]["email_verified"] is False
+
+
+def test_register_works_without_mail_configured(client):
+    assert register(client)["email_verified"] is False  # MAIL_FROM empty: nothing sent, no error
+
+
+def test_resend_verification(client, monkeypatch):
+    sent = _capture_mail(monkeypatch)
+    register(client)
+    assert len(sent) == 1
+    s, d = client.post("/api/me/verify-email", {})
+    assert s == 429 and d["error"]["code"] == "too_soon"   # just sent at registration
+    uid = db.get("EMAIL#alice@uni.example", "EMAIL")["user_id"]
+    db.update(f"USER#{uid}", "PROFILE", {"verification_sent_at": 0})
+    assert client.post("/api/me/verify-email", {})[0] == 200 and len(sent) == 2
+    client.post("/api/auth/verify", {"token": _token(sent[1])}, token=None)
+    s, d = client.post("/api/me/verify-email", {})
+    assert s == 200 and d["already_verified"] is True and len(sent) == 2
+
+
+def test_resend_verification_needs_mail_and_login(client, monkeypatch):
+    register(client)
+    s, d = client.post("/api/me/verify-email", {})
+    assert s == 503 and d["error"]["code"] == "email_not_configured"
+    assert client.post("/api/me/verify-email", {}, token=None)[0] == 401

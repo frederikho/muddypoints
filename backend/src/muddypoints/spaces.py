@@ -68,7 +68,11 @@ MAX_PREVIEW_BOARDS = 8
 def list_spaces(user: dict) -> list[dict]:
     """The user's spaces with role, board previews, members and most recent activity (newest first)."""
     memberships = db.query_gsi1(f"USER#{user['user_id']}", "SPACE#")
-    roles = {m["space_id"]: m["role"] for m in memberships}
+    return overview({m["space_id"]: m["role"] for m in memberships})
+
+
+def overview(roles: dict, with_emails: bool = False) -> list[dict]:
+    """Space cards for the given {space_id: role} (role None = viewed by the operator, not as a member)."""
     spaces = db.batch_get([(f"SPACE#{sid}", "META") for sid in roles])
     members = {sid: db.query(f"SPACE#{sid}", "MEMBER#") for sid in roles}
     profiles = {u["user_id"]: u for u in db.batch_get(
@@ -89,7 +93,9 @@ def list_spaces(user: dict) -> list[dict]:
             "boards": boards[:MAX_PREVIEW_BOARDS],
             "member_count": len(members[sid]),
             "members": sorted(({"user_id": m["user_id"], "role": m["role"],
-                                "name": profiles.get(m["user_id"], {}).get("name", "?")} for m in members[sid]),
+                                "name": profiles.get(m["user_id"], {}).get("name", "?"),
+                                **({"email": profiles.get(m["user_id"], {}).get("email", "?")} if with_emails else {})}
+                               for m in members[sid]),
                               key=lambda m: (-RANK[m["role"]], m["name"].lower())),
             "last_activity_at": latest.get("last_activity_at") or space.get("created_at"),
             "last_activity_board": latest.get("name"),

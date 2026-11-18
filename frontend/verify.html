@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Confirm email · Muddy Points</title>
+  <link rel="icon" href="img/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="img/favicon-192.png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/config.js"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="./"><img class="logo" src="img/logo.png" alt="" width="28" height="28"> Muddy Points</a></header>
+  <main class="container narrow">
+    <div class="card stack">
+      <h1>Confirm your email</h1>
+      <div id="msg"><p class="muted">Checking your link…</p></div>
+      <a href="./">Go to Muddy Points</a>
+    </div>
+  </main>
+  <footer class="site-footer"><a href="#" data-feedback>💡 Feedback or feature idea</a></footer>
+  <script type="module">
+    import { api, session, el } from "./js/api.js";
+    const token = new URLSearchParams(location.search).get("token");
+    const msg = document.getElementById("msg");
+    (async () => {
+      if (!token) return msg.replaceChildren(el("div", { class: "alert" }, "This link is incomplete. Open it again from your email."));
+      try {
+        const { user } = await api("POST", "/api/auth/verify", { token });
+        if (session.user?.user_id === user.user_id) session.set(session.token, user);
+        msg.replaceChildren(el("div", { class: "alert ok" }, `Thanks! ${user.email} is confirmed.`));
+      } catch (err) {
+        msg.replaceChildren(el("div", { class: "alert" }, err.message,
+          " You can request a new link from your account page after logging in."));
+      }
+    })();
+  </script>
+</body>
+</html>
