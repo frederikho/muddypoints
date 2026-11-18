@@ -121,9 +121,9 @@ def test_notifications_go_to_staff_with_opt_out(client, setup):
     assert carol.request("PUT", f"/api/boards/{bid}/notifications", {"enabled": False})[1] == {"enabled": False}
     assert carol.get(f"/api/boards/{bid}/notifications")[1] == {"enabled": False}
     s["mails"].clear()
-    # manual replace by Bob -> everyone else except opted-out Carol
+    # manual replace by Bob -> all staff incl. Bob himself (confirmation), except opted-out Carol
     client.post(f"/api/spaces/{sid}/files/{s['files'][0]}/publish", {"board_id": bid, "mode": "replace"}, token=bob.token)
-    assert sorted(m[0] for m in s["mails"]) == ["alice@uni.example"]
+    assert sorted(m[0] for m in s["mails"]) == ["alice@uni.example", "bob@uni.example"]
     s["mails"].clear()
     plan(client, s, ["2026-10-20T16:00"])
     s["clock"]["now"] = "2026-10-20T14:00:00Z"

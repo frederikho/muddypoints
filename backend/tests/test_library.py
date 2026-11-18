@@ -125,7 +125,7 @@ def test_publish_history_and_reuse(client, owner):
     assert len(d["added_slides"]) == 3
     hist = client.get(f"/api/boards/{bid}/history")[1]["history"]
     assert [h["files"][0]["file_id"] for h in hist] == [f2, f1]
-    assert hist[0]["archived_previous_material"] is True
+    assert hist[0]["archived_previous_material"] is False  # no comments -> nothing worth archiving
     files = {f["file_id"]: f for f in client.get(f"/api/spaces/{sid}/files")[1]["files"]}
     assert files[f1]["published_to"][0]["board"] == "Week 1"
     # reuse: publish f1 again
@@ -165,3 +165,24 @@ def test_titles_are_file_names():
     from muddypoints.library import pretty_name
     assert pretty_name("OdN_VL_9_-_Stated_Preference_Methods.pdf") == "OdN VL 9 - Stated Preference Methods"
     assert pretty_name("OdN+VL+1+-+Einfuhrung.pdf") == "OdN VL 1 - Einfuhrung"
+
+
+def test_archive_only_when_there_are_comments(client, owner):
+    sid, bid = owner["space_id"], owner["board_id"]
+    upload(client, bid, [("w1.pdf", "application/pdf", make_pdf(2))])
+    s, d = upload(client, bid, [("w2.pdf", "application/pdf", make_pdf(1))], mode="replace")
+    assert d.get("archive") is None and client.get(f"/api/boards/{bid}/archives")[1]["archives"] == []
+    student = Client()
+    student.anon = student.post("/api/identity", token=None)[1]["token"]
+    slide = Client().get(f"/api/boards/{bid}")[1]["slides"][0]["slide_id"]
+    student.post(f"/api/boards/{bid}/comments", {"slide_id": slide, "text": "?"}, token=None)
+    s, d = upload(client, bid, [("w3.pdf", "application/pdf", make_pdf(3))], mode="replace")
+    assert d["archive"]["comments"] == 1 and len(client.get(f"/api/boards/{bid}/archives")[1]["archives"]) == 1
+
+
+def test_inline_view_link(client, owner):
+    sid = owner["space_id"]
+    fid = drop_upload(link_token(client, sid), [("L1.pdf", make_pdf(1))])[0]["file_id"]
+    inline = client.get(f"/api/spaces/{sid}/files/{fid}/download?inline=1")[1]["download_url"]
+    download = client.get(f"/api/spaces/{sid}/files/{fid}/download")[1]["download_url"]
+    assert "inline" in inline and "attachment" not in inline and "attachment" in download

@@ -42,7 +42,8 @@ Registration sends a verification mail (signed stateless token, 7 days, `verify.
 - `schedule.advance(board_id)` does a switch: archive the current slides and comments (PDF), publish the file (`uploads._ingest` as the user "Schedule"), reopen comments, mark statuses, and email staff. A conditional update (`planned → switching`) makes it run **exactly once**.
 - It is triggered by **EventBridge Scheduler** every 5 minutes (`template.yaml` → `ScheduleV2` event → `handler` with `{"source": "muddypoints.scheduler"}` → `run_due`, using GSI1 `SCHED` items) and on **every board page load** when `next_switch_at` has passed.
 - Empty board plus planned sessions → the view returns `upcoming` → "Coming soon" card.
-- Emails on every content change (manual replace/clear and scheduled switch) go to all workspace members except the actor and except people who opted out per board (`BOARD#<bid>/NOTIFYOFF#<uid>`).
+- Emails on every content change (manual replace/clear and scheduled switch) go to all workspace members **including the person who made the change** (changes via Claude need a confirmation), except people who opted out per board (`BOARD#<bid>/NOTIFYOFF#<uid>`).
+- Archive PDFs are only created when the outgoing material has comments.
 - Times: the API accepts local `YYYY-MM-DDTHH:MM` (board time zone) or ISO with offset, and returns `starts_at` (UTC) plus `starts_at_local`. Uses `zoneinfo` + the `tzdata` package.
 
 ## Feedback

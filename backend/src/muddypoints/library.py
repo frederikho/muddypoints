@@ -241,10 +241,11 @@ def get_file(space_id: str, file_id: str) -> dict:
     return item
 
 
-def download_url(user: dict, space_id: str, file_id: str) -> dict:
+def download_url(user: dict, space_id: str, file_id: str, inline: bool = False) -> dict:
+    """Presigned link to the PDF: as download, or inline (opens in the browser's PDF viewer)."""
     spaces.require_space(user, space_id, "editor")
     item = get_file(space_id, file_id)
-    return {"download_url": media.presigned_get(_blob_key(item["sha256"]), item["name"], ttl=3600)}
+    return {"download_url": media.presigned_get(_blob_key(item["sha256"]), item["name"], ttl=3600, inline=inline)}
 
 
 def file_bytes(item: dict) -> bytes:

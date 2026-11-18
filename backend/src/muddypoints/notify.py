@@ -32,15 +32,18 @@ def recipients(board: dict, exclude_user_id: str | None = None) -> list[dict]:
 
 
 def board_changed(board_id: str, headline: str, details: str = "", actor: dict | None = None) -> int:
-    """Send '<board>: <headline>' to all staff of the board (except the person who did it). Returns #mails."""
+    """Send '<board>: <headline>' to all staff of the board who did not opt out - including the person who made
+    the change (changes are often made through Claude, and the mail is the confirmation). Returns #mails."""
     board = boards.get_board_meta(board_id)
     sent = 0
-    for person in recipients(board, actor["user_id"] if actor and actor.get("user_id") != "system" else None):
+    people = recipients(board)
+    for person in people:
         body = (f"Hi {person['name']},\n\n{headline}\n\n" + (f"{details}\n\n" if details else "")
                 + f"Board: {board['name']}\n{boards.board_url(board_id)}\n\n"
-                "The comments of the previous material are archived as PDF (board → ⚙ → Archive).\n"
+                "If students commented on the previous material, slides + comments are archived as PDF "
+                "(board → ⚙ → Archive).\n"
                 "To stop these emails for this board: board → ⚙ → Notifications.\n")
         if mailer.send(person["email"], f"[Muddy Points] {board['name']}: {headline}", body):
             sent += 1
-    log_event(logger, logging.INFO, "board change notified", board_id=board_id, recipients=sent)
+    log_event(logger, logging.INFO, "board change notified", board_id=board_id, recipients=len(people), sent=sent)
     return sent

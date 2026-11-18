@@ -90,9 +90,10 @@ def export_board(user: dict, board_id: str, include_uncommented: bool = True) ->
 
 
 def archive_if_needed(board_id: str) -> dict | None:
-    """Keep a permanent PDF before a board's slides are cleared (only if there is something to keep)."""
+    """Keep a permanent PDF before a board's slides are cleared - only if students commented (otherwise it would
+    just duplicate the slides, whose source file is kept in the workspace files anyway)."""
     data = boards.load(board_id)
-    if not data["slides"]:
+    if not data["slides"] or not data["comments"]:
         return None
     return _store(board_id, "archive")
 

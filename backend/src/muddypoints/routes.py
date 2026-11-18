@@ -353,7 +353,8 @@ def list_files(req):
 
 @router.route("GET", "/api/spaces/{space_id}/files/{file_id}/download")
 def download_file(req):
-    return library.download_url(require_user(req), p(req, "space_id"), p(req, "file_id"))
+    return library.download_url(require_user(req), p(req, "space_id"), p(req, "file_id"),
+                                inline=req.query.get("inline") in ("1", "true"))
 
 
 @router.route("POST", "/api/spaces/{space_id}/files/{file_id}/publish")

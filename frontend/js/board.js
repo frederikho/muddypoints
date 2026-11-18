@@ -194,7 +194,8 @@ async function loadSchedule() {
       return el("div", { class: "session-row" },
         el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, time, el("span", { class: cls }, label)),
         el("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" },
-          el("span", { class: "small", title: x.name || "" }, x.title),
+          x.file_id ? el("a", { href: "#", class: "small", title: `Open ${x.name || "PDF"} in a new tab`, onclick: (e) => { e.preventDefault(); viewFile(x.file_id); } }, "📄 ", x.title)
+            : el("span", { class: "small" }, x.title),
           x.status !== "live" && x.status !== "switching" && el("button", { class: "ghost sm danger", type: "button", title: "Remove",
             onclick: (e) => busy(e.currentTarget, async () => { await api("DELETE", `/api/boards/${boardId}/sessions/${x.session_id}`); reload(); }) }, "✕")),
         x.error ? el("div", { class: "alert small" }, x.error) : "");
@@ -242,6 +243,15 @@ function loadPanelData() {
 const publish = (fileId, mode) => api("POST", `/api/spaces/${state.board.space_id}/files/${fileId}/publish`,
   { board_id: boardId, mode });
 
+// Opens a workspace PDF in the browser's viewer (new tab; window opened first so popup blockers don't interfere).
+async function viewFile(fileId) {
+  const win = window.open("", "_blank");
+  try {
+    const { download_url } = await api("GET", `/api/spaces/${state.board.space_id}/files/${fileId}/download?inline=1`);
+    if (win) win.location.href = download_url; else location.href = download_url;
+  } catch (e) { win?.close(); showError(e); }
+}
+
 async function loadFiles() {
   const box = document.getElementById("files-box");
   if (!box) return;
@@ -258,7 +268,8 @@ async function loadFiles() {
       if (!confirm(`Replace the current slides with “${f.title || f.name}”? The current slides and comments are archived as PDF first.`)) return;
       await publish(f.file_id, "replace"); toast("New material is live"); await refresh(true);
     }) }, "⇄ Replace slides with this file");
-    box.replaceChildren(pick, go);
+    const view = el("button", { class: "ghost sm", type: "button", onclick: () => viewFile(pick.value) }, "👁 View this file");
+    box.replaceChildren(pick, view, go);
   } catch (e) { box.replaceChildren(el("p", { class: "alert" }, e.message)); }
 }
 

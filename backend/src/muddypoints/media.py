@@ -44,10 +44,14 @@ def presigned_put(key: str, content_type: str) -> str:
         ExpiresIn=UPLOAD_URL_TTL_SECONDS)
 
 
-def presigned_get(key: str, download_name: str | None = None, ttl: int = MEDIA_URL_TTL_SECONDS) -> str:
+def presigned_get(key: str, download_name: str | None = None, ttl: int = MEDIA_URL_TTL_SECONDS,
+                  inline: bool = False) -> str:
     params = {"Bucket": settings.bucket_name, "Key": key}
     if download_name:
-        params["ResponseContentDisposition"] = f'attachment; filename="{download_name}"'
+        disposition = "inline" if inline else "attachment"
+        params["ResponseContentDisposition"] = f'{disposition}; filename="{download_name}"'
+        if inline and download_name.lower().endswith(".pdf"):
+            params["ResponseContentType"] = "application/pdf"
     return aws.s3().generate_presigned_url("get_object", Params=params, ExpiresIn=ttl)
 
 
