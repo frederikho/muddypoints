@@ -65,7 +65,10 @@ it. Tell the user what you would send and send it once they agree (or right away
 One report per problem, concrete: what you tried, what happened, what would have helped. Never include student
 comment texts, names, emails or other personal data. Optionally ask the user once whether you may add context about
 their teaching (role, discipline, course size, ...): include ONLY what they confirmed or explicitly said - never
-guess or infer it."""
+guess or infer it.
+Testing safely: tools that delete things, post in the user's name or email other people accept dry_run=true - all
+checks run and you get a description of what would happen, nothing changes. Use it when exploring or when unsure.
+For tests with real effects, create a separate test board instead of touching real courses."""
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -89,6 +92,8 @@ def tool(name: str, description: str, properties: dict | None = None, required: 
 
 S = {"type": "string"}
 SPACE = {"workspace_id": {**S, "description": "Workspace id (from list_workspaces)"}}
+DRY = {"dry_run": {"type": "boolean", "default": False,
+                   "description": "Check everything (permissions, ids, rules) and report what WOULD happen; change nothing"}}
 BOARD = {"board_id": {**S, "description": "Board id (from list_boards)"}}
 MODE = {"mode": {"type": "string", "enum": ["append", "replace"], "default": "replace",
                  "description": "append = add after existing slides; replace = remove all old slides, comments "
@@ -120,8 +125,10 @@ def _rename_workspace(user, a):
 
 
 @tool("delete_workspace", "Permanently delete a workspace with ALL its boards, slides, comments and files (owners only).",
-      SPACE, ("workspace_id",), destructive=True)
+      {**SPACE, **DRY}, ("workspace_id",), destructive=True)
 def _delete_workspace(user, a):
+    if a.get("dry_run"):
+        return spaces.delete_space(user, a["workspace_id"], dry_run=True)
     spaces.delete_space(user, a["workspace_id"])
     return {"deleted": a["workspace_id"]}
 
@@ -134,25 +141,25 @@ def _list_members(user, a):
 
 @tool("invite_member", "Share a workspace with someone by email. Existing users are added immediately, others get "
       "access when they register with that email.",
-      {**SPACE, "email": S, "role": {"type": "string", "enum": ["editor", "owner"], "default": "editor"}},
+      {**SPACE, "email": S, "role": {"type": "string", "enum": ["editor", "owner"], "default": "editor"}, **DRY},
       ("workspace_id", "email"))
 def _invite(user, a):
-    return spaces.invite(user, a["workspace_id"], a.get("email"), a.get("role", "editor"))
+    return spaces.invite(user, a["workspace_id"], a.get("email"), a.get("role", "editor"), dry_run=bool(a.get("dry_run")))
 
 
 @tool("set_member_role", "Change a member's role (owners only).",
-      {**SPACE, "user_id": S, "role": {"type": "string", "enum": ["editor", "owner"]}},
+      {**SPACE, "user_id": S, "role": {"type": "string", "enum": ["editor", "owner"]}, **DRY},
       ("workspace_id", "user_id", "role"))
 def _set_role(user, a):
-    spaces.set_role(user, a["workspace_id"], a["user_id"], a.get("role"))
-    return {"ok": True}
+    res = spaces.set_role(user, a["workspace_id"], a["user_id"], a.get("role"), dry_run=bool(a.get("dry_run")))
+    return res or {"ok": True}
 
 
 @tool("remove_member", "Remove a member from a workspace (only owners can remove owners; anyone can remove themselves).",
-      {**SPACE, "user_id": S}, ("workspace_id", "user_id"), destructive=True)
+      {**SPACE, "user_id": S, **DRY}, ("workspace_id", "user_id"), destructive=True)
 def _remove_member(user, a):
-    spaces.remove_member(user, a["workspace_id"], a["user_id"])
-    return {"ok": True}
+    res = spaces.remove_member(user, a["workspace_id"], a["user_id"], dry_run=bool(a.get("dry_run")))
+    return res or {"ok": True}
 
 
 # --- boards ---------------------------------------------------------------------------------
@@ -172,14 +179,22 @@ def _create_board(user, a):
     return boards.create_board(user, a["workspace_id"], a.get("name"), a.get("background"))
 
 
-@tool("get_board", "Board overview: slides (ids, order, source file, likes, comment count) and settings.", BOARD,
-      ("board_id",), read_only=True)
+@tool("get_board", "Board overview: settings, totals and slides (number, id, source file, likes, comments). By default "
+      "only slides with likes or comments are listed (compact); compact=false lists every slide.",
+      {**BOARD, "compact": {"type": "boolean", "default": True}}, ("board_id",), read_only=True)
 def _get_board(user, a):
     boards.require_board(user, a["board_id"], "editor")
     v = boards.view(a["board_id"], identity.viewer_from_user(user))
-    return {"board": v["board"], "your_role": v["my_role"], "slides": [
-        {"number": i + 1, "slide_id": s["slide_id"], "source": s["source"], "likes": s["likes"],
-         "comments": len(s["comments"])} for i, s in enumerate(v["slides"])]}
+    slides = [{"number": i + 1, "slide_id": s["slide_id"], "source": s["source"], "likes": s["likes"],
+               "comments": len(s["comments"]) + sum(len(c.get("replies", [])) for c in s["comments"])}
+              for i, s in enumerate(v["slides"])]
+    compact = a.get("compact", True) is not False
+    shown = [s for s in slides if s["likes"] or s["comments"]] if compact else slides
+    return {"board": v["board"], "your_role": v["my_role"],
+            "totals": {"slides": len(slides), "slides_with_activity": len([s for s in slides if s["likes"] or s["comments"]]),
+                       "comments": sum(s["comments"] for s in slides), "likes": sum(s["likes"] for s in slides)},
+            "slides": shown, **({"note": "Only slides with likes/comments are listed; compact=false shows all."}
+                                if compact and len(shown) < len(slides) else {})}
 
 
 @tool("update_board", "Rename a board, lock it (locked = students can no longer comment or like), change its "
@@ -191,10 +206,10 @@ def _update_board(user, a):
 
 
 @tool("delete_board", "Permanently delete a board incl. slides and comments. Its URL stops working.",
-      BOARD, ("board_id",), destructive=True)
+      {**BOARD, **DRY}, ("board_id",), destructive=True)
 def _delete_board(user, a):
-    boards.delete_board(user, a["board_id"])
-    return {"deleted": a["board_id"]}
+    res = boards.delete_board(user, a["board_id"], dry_run=bool(a.get("dry_run")))
+    return res or {"deleted": a["board_id"]}
 
 
 @tool("list_comments", "All comments of a board, oldest first, with the slide number they belong to.", BOARD,
@@ -205,9 +220,10 @@ def _list_comments(user, a):
 
 @tool("reply_to_comment", "Post a reply under a student's comment, IN THE USER'S NAME (shown as staff). Only when the "
       "user explicitly asked for it (see instructions). Marks the question as answered.",
-      {**BOARD, "comment_id": S, "text": S}, ("board_id", "comment_id", "text"))
+      {**BOARD, "comment_id": S, "text": S, **DRY}, ("board_id", "comment_id", "text"))
 def _reply(user, a):
-    return boards.add_comment(a["board_id"], None, a.get("text"), identity.viewer_from_user(user), a["comment_id"])
+    return boards.add_comment(a["board_id"], None, a.get("text"), identity.viewer_from_user(user), a["comment_id"],
+                              dry_run=bool(a.get("dry_run")))
 
 
 @tool("set_comment_status", "Mark a comment answered (✓ visible to students), pin it (top of its slide) or hide it "
@@ -219,12 +235,13 @@ def _comment_status(user, a):
                                      a.get("hidden"))
 
 
-@tool("delete_comment", "Delete a comment.", {**BOARD, "comment_id": S}, ("board_id", "comment_id"),
-      destructive=True)
+@tool("delete_comment", "Delete a comment (and its replies).", {**BOARD, "comment_id": S, **DRY},
+      ("board_id", "comment_id"), destructive=True)
 def _delete_comment(user, a):
     boards.require_board(user, a["board_id"], "editor")
-    boards.delete_comment(a["board_id"], a["comment_id"], identity.viewer_from_user(user))
-    return {"ok": True}
+    res = boards.delete_comment(a["board_id"], a["comment_id"], identity.viewer_from_user(user),
+                                dry_run=bool(a.get("dry_run")))
+    return res or {"ok": True}
 
 
 # --- slides ---------------------------------------------------------------------------------
@@ -292,17 +309,18 @@ def _reorder(user, a):
     return boards.reorder_slides(user, a["board_id"], a.get("slide_ids"))
 
 
-@tool("delete_slide", "Delete one slide with its comments.", {**BOARD, "slide_id": S},
+@tool("delete_slide", "Delete one slide with its comments.", {**BOARD, "slide_id": S, **DRY},
       ("board_id", "slide_id"), destructive=True)
 def _delete_slide(user, a):
-    boards.delete_slide(user, a["board_id"], a["slide_id"])
-    return {"ok": True}
+    res = boards.delete_slide(user, a["board_id"], a["slide_id"], dry_run=bool(a.get("dry_run")))
+    return res or {"ok": True}
 
 
 @tool("clear_board", "Remove all slides, comments and likes from a board. By default an archive PDF "
-      "is saved first.", {**BOARD, "archive": {"type": "boolean", "default": True}}, ("board_id",), destructive=True)
+      "is saved first (only if there are comments).", {**BOARD, "archive": {"type": "boolean", "default": True}, **DRY},
+      ("board_id",), destructive=True)
 def _clear(user, a):
-    return export.clear_board(user, a["board_id"], a.get("archive", True))
+    return export.clear_board(user, a["board_id"], a.get("archive", True), dry_run=bool(a.get("dry_run")))
 
 
 # --- workspace files ------------------------------------------------------------------------
@@ -322,10 +340,20 @@ def _create_link(user, a):
       "topic, semester, tags, notes), where each file was published before and where it is scheduled. Cheap overview - "
       "read details with read_file / view_file_pages. Optional filters.",
       {**SPACE, "query": {"type": "string", "description": "Words that must appear in name/topic/tags/notes"},
-       "semester": S, "tag": S}, ("workspace_id",), read_only=True)
+       "semester": S, "tag": S, "limit": {"type": "integer", "default": 50, "description": "Max 200"},
+       "offset": {"type": "integer", "default": 0},
+       "include_outline": {"type": "boolean", "default": False, "description": "Add each file's table of contents"}},
+      ("workspace_id",), read_only=True)
 def _list_files(user, a):
-    return library.list_files(user, a["workspace_id"], query=a.get("query"), semester=a.get("semester"),
-                              tag=a.get("tag"))
+    files = library.list_files(user, a["workspace_id"], with_outline=bool(a.get("include_outline")),
+                               query=a.get("query"), semester=a.get("semester"), tag=a.get("tag"))
+    try:
+        limit, offset = max(1, min(int(a.get("limit") or 50), 200)), max(0, int(a.get("offset") or 0))
+    except (TypeError, ValueError):
+        raise ApiError(400, "invalid_input", "limit and offset must be numbers")
+    page = files[offset:offset + limit]
+    return {"total": len(files), "offset": offset, "files": page,
+            "next_offset": offset + limit if offset + limit < len(files) else None}
 
 
 @tool("update_file_metadata", "Set metadata on a workspace file so it can be matched to syllabus weeks reliably: "
@@ -386,10 +414,10 @@ def _view_pages(user, a):
 
 
 @tool("delete_file", "Delete a file from the workspace files (boards that already show it are not affected).",
-      {**SPACE, "file_id": S}, ("workspace_id", "file_id"), destructive=True)
+      {**SPACE, "file_id": S, **DRY}, ("workspace_id", "file_id"), destructive=True)
 def _delete_file(user, a):
-    library.delete(user, a["workspace_id"], a["file_id"])
-    return {"ok": True}
+    res = library.delete(user, a["workspace_id"], a["file_id"], dry_run=bool(a.get("dry_run")))
+    return res or {"ok": True}
 
 
 @tool("get_board_history", "What was put on a board when and by whom (newest first), incl. the file ids - use it to "
@@ -447,11 +475,11 @@ def _run_now(user, a):
     return schedule.run_now(user, a["board_id"], a["session_id"])
 
 
-@tool("remove_session", "Remove a planned (or past) session from a board's schedule.", {**BOARD, "session_id": S},
-      ("board_id", "session_id"), destructive=True)
+@tool("remove_session", "Remove a planned (or past) session from a board's schedule.",
+      {**BOARD, "session_id": S, **DRY}, ("board_id", "session_id"), destructive=True)
 def _remove_session(user, a):
-    schedule.remove_session(user, a["board_id"], a["session_id"])
-    return {"ok": True}
+    res = schedule.remove_session(user, a["board_id"], a["session_id"], dry_run=bool(a.get("dry_run")))
+    return res or {"ok": True}
 
 
 @tool("set_notifications", "Switch the 'board changed' emails on/off for the current user and this board.",
@@ -482,10 +510,12 @@ def _archived_comments(user, a):
                                     a.get("include_current", True))
 
 
-@tool("list_board_archives", "List the PDFs archived automatically whenever the board was cleared/replaced.", BOARD,
-      ("board_id",), read_only=True)
+@tool("list_board_archives", "List the PDFs archived when the board was cleared/replaced (only when there were "
+      "comments). Without download links by default; pass with_urls=true, or key=<archive key> for one link.",
+      {**BOARD, "with_urls": {"type": "boolean", "default": False}, "key": S}, ("board_id",), read_only=True)
 def _archives(user, a):
-    return export.list_archives(user, a["board_id"])
+    return export.list_archives(user, a["board_id"], with_urls=bool(a.get("with_urls")) or bool(a.get("key")),
+                                only_key=a.get("key"))
 
 
 # --- debugging ------------------------------------------------------------------------------

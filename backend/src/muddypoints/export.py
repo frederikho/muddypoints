@@ -106,6 +106,18 @@ def archive_if_needed(board_id: str) -> dict | None:
     return result
 
 
+def archive_with_reason(board_id: str, wanted: bool = True) -> tuple[dict | None, str | None]:
+    """(archive info, None) or (None, why no archive was made) - callers report the reason to users/agents."""
+    if not wanted:
+        return None, "archive=false was requested"
+    data = boards.load(board_id)
+    if not data["slides"]:
+        return None, "the board was empty"
+    if not data["comments"]:
+        return None, "no comments on the previous material, so there was nothing worth archiving (the files stay in the workspace files)"
+    return archive_if_needed(board_id), None
+
+
 def comment_snapshot(data: dict) -> list[dict]:
     """Slides with their threaded comments (staff view incl. hidden) as plain data."""
     threaded = boards.thread_comments(data["comments"], include_hidden=True)
@@ -138,7 +150,11 @@ def archived_comments(user: dict, board_id: str, limit: int = 5, offset: int = 0
     index = sorted(db.query(f"BOARD#{board_id}", "ARCH#"), key=lambda i: i["SK"], reverse=True)
     archives = [{**json.loads(media.get_bytes(i["json_key"])), "comment_count": i.get("comment_count")}
                 for i in index[offset:offset + limit]]
+    pdf_count = len([o for o in media.list_keys(f"archive/{board_id}/") if o["Key"].endswith(".pdf")])
     out = {"board": board["name"], "total_archives": len(index), "archives": archives,
+           "pdf_only_archives": max(0, pdf_count - len(index)),
+           "note": "Archives created before comment data was stored exist only as PDF (list_board_archives)."
+           if pdf_count > len(index) else None,
            "next_offset": offset + limit if offset + limit < len(index) else None}
     if include_current and offset == 0:
         out["current"] = {"material": [f.get("title") or f.get("name") for f in (
@@ -147,20 +163,31 @@ def archived_comments(user: dict, board_id: str, limit: int = 5, offset: int = 0
     return out
 
 
-def list_archives(user: dict, board_id: str) -> list[dict]:
+def list_archives(user: dict, board_id: str, with_urls: bool = True, only_key: str | None = None) -> list[dict]:
     boards.require_board(user, board_id, "editor")
     objects = sorted((o for o in media.list_keys(f"archive/{board_id}/") if o["Key"].endswith(".pdf")),
                      key=lambda o: o["Key"], reverse=True)
+    if only_key:
+        objects = [o for o in objects if o["Key"] == only_key]
+        if not objects:
+            raise ApiError(404, "not_found", f"Archive '{only_key}' not found")
     return [{"key": o["Key"], "size_bytes": o["Size"], "created_at": o["LastModified"].isoformat(),
-             "download_url": media.presigned_get(o["Key"], o["Key"].rsplit("/", 1)[-1], ttl=3600)}
+             **({"download_url": media.presigned_get(o["Key"], o["Key"].rsplit("/", 1)[-1], ttl=3600)} if with_urls else {})}
             for o in objects]
 
 
-def clear_board(user: dict, board_id: str, archive: bool = True) -> dict:
+def clear_board(user: dict, board_id: str, archive: bool = True, dry_run: bool = False) -> dict:
     boards.require_board(user, board_id, "editor")
     if not isinstance(archive, bool):
         raise ApiError(400, "invalid_input", "'archive' must be true or false")
-    result = {"archive": archive_if_needed(board_id) if archive else None}
+    if dry_run:
+        data = boards.load(board_id)
+        will_archive = archive and data["slides"] and data["comments"]
+        return boards.dry(f"remove {len(data['slides'])} slide(s), {len(data['comments'])} comment(s) and all likes, "
+                          + ("archiving them as PDF first" if will_archive else "WITHOUT an archive (no comments or archive=false)")
+                          + ", and email all workspace staff")
+    info, reason = archive_with_reason(board_id, archive)
+    result = {"archive": info, **({"archive_skipped": reason} if reason else {})}
     result["removed_slides"] = boards.clear_slides(board_id, user["name"])
     from . import notify  # export <- notify <- boards: import lazily
     notify.board_changed(board_id, "Board cleared", f"Cleared by {user['name']}.", actor=user)

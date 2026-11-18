@@ -112,7 +112,7 @@ def render(data: bytes, filename: str) -> list[dict]:
             pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
             if pix.colorspace and pix.colorspace.n not in (1, 3):  # e.g. CMYK -> RGB for JPEG output
                 pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
-            label = f"{filename} p.{page.number + 1}" if doc.page_count > 1 else filename
+            label = f"{filename} p.{page.number + 1}" if doc.is_pdf else filename  # PDFs always get p.N
             pages.append({"jpeg": pix.tobytes("jpg", jpg_quality=85), "width": pix.width,
                           "height": pix.height, "source": label})
         return pages

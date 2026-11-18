@@ -55,13 +55,16 @@ def _ingest(user: dict, board_id: str, blobs: list[tuple[bytes, str]], mode: str
                 source_files.append({"file_id": None, "name": name, "title": name})
     result: dict = {"mode": mode}
     archive_info = None
+    archive_reason = None
     if mode == "replace":
-        if archive:
-            archive_info = result["archive"] = export.archive_if_needed(board_id)
+        archive_info, archive_reason = export.archive_with_reason(board_id, archive)
+        result["archive"] = archive_info
+        if archive_reason:
+            result["archive_skipped"] = archive_reason
         result["removed_slides"] = boards.clear_slides(board_id, user["name"])
     result["added_slides"] = boards.add_slides(board_id, media.store_rendered(board_id, pages), user["name"])
     result["board_url"] = boards.board_url(board_id)
-    library.record_history(board_id, user["name"], mode, source_files, (archive_info or {}).get("key"))
+    library.record_history(board_id, user["name"], mode, source_files, (archive_info or {}).get("key"), archive_reason)
     for f in source_files:
         if f.get("file_id"):
             library.mark_published(board["space_id"], f["file_id"], board)

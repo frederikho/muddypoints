@@ -34,7 +34,7 @@ def require_space(user: dict, space_id: str, min_role: str = "editor") -> tuple[
     space = db.get(f"SPACE#{space_id}", "META")
     role = role_of(space_id, user) if space else None
     if not space or not role:
-        raise not_found("Space")
+        raise not_found("Workspace", space_id)
     if RANK[role] < RANK[min_role]:
         raise forbidden(f"Only workspace {min_role}s can do this")
     return space, role
@@ -110,9 +110,16 @@ def rename_space(user: dict, space_id: str, name) -> dict:
     return public_space(space, role)
 
 
-def delete_space(user: dict, space_id: str) -> None:
-    require_space(user, space_id, "owner")
+def _dry(action: str, **details) -> dict:
+    return {"dry_run": True, "would": action, **details, "note": "Nothing was changed. Call again without dry_run."}
+
+
+def delete_space(user: dict, space_id: str, dry_run: bool = False) -> dict | None:
+    space, _ = require_space(user, space_id, "owner")
     from . import boards
+    if dry_run:
+        n = len(db.query_gsi1(f"SPACE#{space_id}", "BOARD#"))
+        return _dry(f"permanently delete workspace '{space['name']}' with {n} board(s), all slides, comments and files")
     for board in db.query_gsi1(f"SPACE#{space_id}", "BOARD#"):
         boards.purge_board(board["board_id"])
     db.batch_delete([(i["PK"], i["SK"]) for i in db.query(f"SPACE#{space_id}")])
@@ -137,7 +144,7 @@ def list_members(user: dict, space_id: str) -> dict:
     }
 
 
-def invite(user: dict, space_id: str, email, role="editor") -> dict:
+def invite(user: dict, space_id: str, email, role="editor", dry_run: bool = False) -> dict:
     """Add an existing user directly, or store a pending invite applied when they register."""
     role = _check_role(role)
     space, my_role = require_space(user, space_id, "editor")
@@ -150,18 +157,22 @@ def invite(user: dict, space_id: str, email, role="editor") -> dict:
     link = settings.frontend_url + "/"
     if invitee:
         if role_of(space_id, invitee):
-            raise ApiError(409, "already_member", "This user is already a member of the space")
+            raise ApiError(409, "already_member", "This user is already a member of the workspace")
+        if dry_run:
+            return _dry(f"add {email} (existing account) as {role} and send them an email")
         db.put(_member_item(space_id, invitee["user_id"], role))
         mailer.send(email, f"You were added to '{space['name']}'",
-                    f"Hi {invitee['name']},\n\n{user['name']} added you as {role} to the space "
+                    f"Hi {invitee['name']},\n\n{user['name']} added you as {role} to the workspace "
                     f"'{space['name']}'.\nLog in here: {link}\n")
         log_event(logger, logging.INFO, "member added", space_id=space_id, member_id=invitee["user_id"], role=role)
         return {"status": "added", "email": email, "role": role, "user_id": invitee["user_id"]}
+    if dry_run:
+        return _dry(f"invite {email} as {role} (no account yet: access once they register) and send them an email")
     db.put({"PK": f"SPACE#{space_id}", "SK": f"INVITE#{email}", "space_id": space_id, "email": email, "role": role,
             "invited_by": user["user_id"], "invited_at": now_iso(),
             "GSI1PK": f"INVITE#{email}", "GSI1SK": f"SPACE#{space_id}"})
     mailer.send(email, f"Invitation to '{space['name']}'",
-                f"Hi,\n\n{user['name']} invited you as {role} to the space '{space['name']}'.\n"
+                f"Hi,\n\n{user['name']} invited you as {role} to the workspace '{space['name']}'.\n"
                 f"Register with this email address to get access: {link}\n")
     log_event(logger, logging.INFO, "invite created", space_id=space_id, role=role)
     return {"status": "invited", "email": email, "role": role}
@@ -177,35 +188,39 @@ def accept_pending_invites(user: dict) -> None:
 def revoke_invite(user: dict, space_id: str, email: str) -> None:
     require_space(user, space_id, "editor")
     if not db.delete(f"SPACE#{space_id}", f"INVITE#{normalize_email(email)}", if_exists=True):
-        raise not_found("Invite")
+        raise not_found("Invite", email)
 
 
 def _owner_count(space_id: str) -> int:
     return sum(1 for m in db.query(f"SPACE#{space_id}", "MEMBER#") if m["role"] == "owner")
 
 
-def set_role(user: dict, space_id: str, member_id: str, role) -> None:
+def set_role(user: dict, space_id: str, member_id: str, role, dry_run: bool = False) -> dict | None:
     role = _check_role(role)
     require_space(user, space_id, "owner")
     member = db.get(f"SPACE#{space_id}", f"MEMBER#{member_id}")
     if not member:
-        raise not_found("Member")
+        raise not_found("Member", member_id)
     if member["role"] == "owner" and role != "owner" and _owner_count(space_id) <= 1:
         raise ApiError(409, "last_owner", "A workspace needs at least one owner")
+    if dry_run:
+        return _dry(f"change the role of member '{member_id}' from {member['role']} to {role}")
     db.update(f"SPACE#{space_id}", f"MEMBER#{member_id}", {"role": role})
     log_event(logger, logging.INFO, "member role changed", space_id=space_id, member_id=member_id, role=role)
 
 
-def remove_member(user: dict, space_id: str, member_id: str) -> None:
+def remove_member(user: dict, space_id: str, member_id: str, dry_run: bool = False) -> dict | None:
     """Owners can remove anyone; editors can remove editors (not owners); everyone can leave."""
     leaving = member_id == user["user_id"]
     _, my_role = require_space(user, space_id, "editor")
     member = db.get(f"SPACE#{space_id}", f"MEMBER#{member_id}")
     if not member:
-        raise not_found("Member")
+        raise not_found("Member", member_id)
     if member["role"] == "owner" and my_role != "owner" and not leaving:
         raise forbidden("Only owners can remove owners")
     if member["role"] == "owner" and _owner_count(space_id) <= 1:
         raise ApiError(409, "last_owner", "A workspace needs at least one owner")
+    if dry_run:
+        return _dry(f"remove member '{member_id}' ({member['role']}) from the workspace")
     db.delete(f"SPACE#{space_id}", f"MEMBER#{member_id}")
     log_event(logger, logging.INFO, "member removed", space_id=space_id, member_id=member_id)

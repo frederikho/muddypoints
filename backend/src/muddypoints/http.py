@@ -13,8 +13,9 @@ class ApiError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
-def not_found(what: str = "Resource") -> ApiError:
-    return ApiError(404, "not_found", f"{what} not found")
+def not_found(what: str = "Resource", ident=None) -> ApiError:
+    """'Board 'abc123' not found' - naming the id helps API/MCP callers see which reference was wrong."""
+    return ApiError(404, "not_found", f"{what} '{ident}' not found" if ident else f"{what} not found")
 
 
 def forbidden(message: str = "You do not have permission to do this") -> ApiError:

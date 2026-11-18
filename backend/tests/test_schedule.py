@@ -202,7 +202,7 @@ def test_multi_file_sessions_dry_run_and_run_now(client, setup, mcp):
     s["clock"]["now"] = "2026-10-20T14:00:00Z"
     schedule.advance(bid)
     view = Client().get(f"/api/boards/{bid}")[1]
-    assert [sl["source"] for sl in view["slides"]] == ["Lecture_1_Intro.pdf", "Lecture_2_Markets.pdf p.1",
+    assert [sl["source"] for sl in view["slides"]] == ["Lecture_1_Intro.pdf p.1", "Lecture_2_Markets.pdf p.1",
                                                        "Lecture_2_Markets.pdf p.2"]
     # run the next session now instead of waiting
     nxt = [x for x in client.get(f"/api/boards/{bid}/schedule")[1]["sessions"] if x["status"] == "planned"][0]
@@ -229,3 +229,31 @@ def test_files_show_where_they_are_scheduled(client, setup):
     files = {f["file_id"]: f for f in client.get(f"/api/spaces/{s['space_id']}/files")[1]["files"]}
     assert files[s["files"][0]]["scheduled"][0]["board"] == "Week 1"
     assert files[s["files"][1]]["scheduled"] == []
+
+
+def test_schedule_warnings_duplicates_and_close_times(client, setup, mcp):
+    s, bid = setup, setup["board_id"]
+    res, err = mcp.call("set_schedule", board_id=bid, dry_run=True, sessions=[
+        {"file_id": s["files"][0], "starts_at": "2026-10-20T16:00"},
+        {"file_id": s["files"][0], "starts_at": "2026-10-20T16:00"},
+        {"file_id": s["files"][1], "starts_at": "2026-10-20T16:30"}])
+    text = " ".join(res["warnings"])
+    assert "at the same time" in text and "30 minutes apart" in text and "is scheduled in 2 sessions" in text
+    # add_session checks against what is already planned
+    client.post(f"/api/boards/{bid}/sessions", {"file_id": s["files"][2], "starts_at": "2026-11-03T16:00"})
+    d = client.post(f"/api/boards/{bid}/sessions", {"file_id": s["files"][2], "starts_at": "2026-11-10T16:00"})[1]["session"]
+    assert any("scheduled in 2 sessions" in w for w in d["warnings"])
+
+
+def test_archive_skip_reasons_and_one_based_numbers(client, setup, mcp):
+    s, bid = setup, setup["board_id"]
+    res, err = mcp.call("publish_file", workspace_id=s["space_id"], file_id=s["files"][1], board_id=bid)
+    assert [x["number"] for x in res["added_slides"]] == [1, 2] and res["archive_skipped"] == "the board was empty"
+    res, err = mcp.call("publish_file", workspace_id=s["space_id"], file_id=s["files"][0], board_id=bid)
+    assert res["archive"] is None and "no comments" in res["archive_skipped"]
+    hist, _ = mcp.call("get_board_history", board_id=bid)
+    assert "no comments" in hist[0]["archive_skipped"]
+    text, err = mcp.call("get_board", board_id="nope123")
+    assert err and "Board 'nope123' not found" in text
+    text, err = mcp.call("list_boards", workspace_id="nope123")
+    assert err and "Workspace 'nope123' not found" in text

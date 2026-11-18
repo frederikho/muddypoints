@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from conftest import Client, make_pdf, register
+from conftest import Client, make_pdf, register, upload
 
 
 @pytest.fixture
@@ -65,7 +65,7 @@ def test_tools_end_to_end(mcp, owner, monkeypatch):
     monkeypatch.setattr("muddypoints.media.download", lambda url: (pdf, "lecture2.pdf"))
     res, err = mcp.call("import_slides_from_url", board_id=board["board_id"], url="https://x.example/l.pdf")
     assert not err and len(res["added_slides"]) == 2
-    info, _ = mcp.call("get_board", board_id=board["board_id"])
+    info, _ = mcp.call("get_board", board_id=board["board_id"], compact=False)
     assert [s["number"] for s in info["slides"]] == [1, 2]
 
     student = Client()
@@ -185,7 +185,7 @@ def test_files_workflow_via_mcp(mcp, client, owner):
     long_pages = [f"Page {i}: " + "word " * 1500 for i in range(1, 11)]  # ~7.5k chars per page
     drop_upload(token, [("syllabus.pdf", make_text_pdf(["Syllabus WS 26/27\nTue 14:00-16:00"])),
                         ("L5.pdf", make_text_pdf(long_pages))])
-    files, _ = mcp.call("list_files", workspace_id=owner["space_id"])
+    files = mcp.call("list_files", workspace_id=owner["space_id"])[0]["files"]
     assert {f["name"] for f in files} == {"syllabus.pdf", "L5.pdf"} and "workspace_id" not in files[0]
     l5 = next(f for f in files if f["name"] == "L5.pdf")
     part, _ = mcp.call("read_file", workspace_id=owner["space_id"], file_id=l5["file_id"], max_chars=16000)
@@ -197,3 +197,57 @@ def test_files_workflow_via_mcp(mcp, client, owner):
     assert not err and len(res["added_slides"]) == 10
     hist, _ = mcp.call("get_board_history", board_id=owner["board_id"])
     assert hist[0]["files"][0]["name"] == "L5.pdf" and hist[0]["workspace_id"] == owner["space_id"]
+
+
+def test_compact_outputs(mcp, client, owner):
+    from test_library import drop_upload, link_token, make_text_pdf
+    bid = owner["board_id"]
+    upload(client, bid, [("w.pdf", "application/pdf", make_pdf(3))])
+    slide = client.get(f"/api/boards/{bid}")[1]["slides"][1]["slide_id"]
+    client.post(f"/api/boards/{bid}/comments", {"slide_id": slide, "text": "Note"})
+    info, _ = mcp.call("get_board", board_id=bid)
+    assert [s["number"] for s in info["slides"]] == [2] and info["totals"] == {
+        "slides": 3, "slides_with_activity": 1, "comments": 1, "likes": 0} and "note" in info
+    upload(client, bid, [("w2.pdf", "application/pdf", make_pdf(1))], mode="replace")  # archived (had a comment)
+    arch, _ = mcp.call("list_board_archives", board_id=bid)
+    assert len(arch) == 1 and "download_url" not in arch[0]
+    one, _ = mcp.call("list_board_archives", board_id=bid, key=arch[0]["key"])
+    assert one[0]["download_url"].startswith("https://")
+    drop_upload(link_token(client, owner["space_id"]), [(f"f{i}.pdf", make_text_pdf([f"file {i}"])) for i in range(5)])
+    page, _ = mcp.call("list_files", workspace_id=owner["space_id"], limit=3)
+    assert page["total"] == 7 and len(page["files"]) == 3 and page["next_offset"] == 3 and "outline" not in page["files"][0]
+    rest, _ = mcp.call("list_files", workspace_id=owner["space_id"], offset=3, limit=10, include_outline=True)
+    assert len(rest["files"]) == 4 and rest["next_offset"] is None and "outline" in rest["files"][0]
+
+
+def test_dry_run_changes_nothing(mcp, client, owner):
+    bid, sid = owner["board_id"], owner["space_id"]
+    upload(client, bid, [("w.pdf", "application/pdf", make_pdf(2))])
+    slide = client.get(f"/api/boards/{bid}")[1]["slides"][0]["slide_id"]
+    student = Client()
+    student.anon = student.post("/api/identity", token=None)[1]["token"]
+    q = student.post(f"/api/boards/{bid}/comments", {"slide_id": slide, "text": "Why?"}, token=None)[1]["comment"]
+    bob = Client()
+    bob_user = register(bob, email="bob@uni.example", name="Bob")
+    client.post(f"/api/spaces/{sid}/members", {"email": "bob@uni.example"})
+    checks = [("reply_to_comment", {"board_id": bid, "comment_id": q["comment_id"], "text": "Because."}),
+              ("delete_comment", {"board_id": bid, "comment_id": q["comment_id"]}),
+              ("delete_slide", {"board_id": bid, "slide_id": slide}),
+              ("clear_board", {"board_id": bid}),
+              ("delete_board", {"board_id": bid}),
+              ("invite_member", {"workspace_id": sid, "email": "carol@uni.example"}),
+              ("set_member_role", {"workspace_id": sid, "user_id": bob_user["user_id"], "role": "owner"}),
+              ("remove_member", {"workspace_id": sid, "user_id": bob_user["user_id"]}),
+              ("delete_workspace", {"workspace_id": sid})]
+    for name, args in checks:
+        res, err = mcp.call(name, **args, dry_run=True)
+        assert not err and res["dry_run"] is True and res["would"], name
+    # nothing changed
+    view = client.get(f"/api/boards/{bid}")[1]
+    assert len(view["slides"]) == 2 and view["slides"][0]["comments"][0]["replies"] == []
+    assert not view["slides"][0]["comments"][0]["answered"]
+    members = client.get(f"/api/spaces/{sid}/members")[1]
+    assert len(members["members"]) == 2 and members["invites"] == []
+    # checks still apply in dry runs
+    text, err = mcp.call("delete_comment", board_id=bid, comment_id="nope", dry_run=True)
+    assert err and "Comment 'nope' not found" in text

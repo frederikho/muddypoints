@@ -26,7 +26,7 @@ def board_url(board_id: str) -> str:
 def get_board_meta(board_id: str) -> dict:
     board = db.get(f"BOARD#{board_id}", "META") if board_id else None
     if not board:
-        raise not_found("Board")
+        raise not_found("Board", board_id)
     return board
 
 
@@ -42,7 +42,21 @@ def public_board(board: dict) -> dict:
             "updated_at": board.get("updated_at"), "url": board_url(board["board_id"]),
             "background": board.get("background") if board.get("background") in BACKGROUNDS else "plain",
             "last_activity_at": last_activity(board), "last_activity_by": board.get("last_activity_by"),
-            "timezone": board.get("timezone") or "Europe/Berlin", "next_switch_at": board.get("next_switch_at")}
+            "timezone": board.get("timezone") or "Europe/Berlin", "next_switch_at": board.get("next_switch_at"),
+            "next_switch_at_local": _local(board.get("next_switch_at"), board.get("timezone"))}
+
+
+def _local(utc_iso, tz_name):
+    """UTC ISO -> 'Tue 2026-10-20 16:00' in the board's time zone (same format as get_schedule)."""
+    if not utc_iso:
+        return None
+    from datetime import datetime
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        tz = ZoneInfo(tz_name or "Europe/Berlin")
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("Europe/Berlin")
+    return datetime.fromisoformat(utc_iso.replace("Z", "+00:00")).astimezone(tz).strftime("%a %Y-%m-%d %H:%M")
 
 
 def last_activity(board: dict) -> str | None:
@@ -113,8 +127,17 @@ def purge_board(board_id: str) -> None:
     media.delete_prefix(f"boards/{board_id}/")
 
 
-def delete_board(user: dict, board_id: str) -> None:
-    require_board(user, board_id, "editor")
+def dry(action: str, **details) -> dict:
+    """Result of a dry run: all checks passed, nothing was changed."""
+    return {"dry_run": True, "would": action, **details, "note": "Nothing was changed. Call again without dry_run."}
+
+
+def delete_board(user: dict, board_id: str, dry_run: bool = False) -> dict | None:
+    board, _ = require_board(user, board_id, "editor")
+    if dry_run:
+        data = load(board_id)
+        return dry(f"permanently delete board '{board['name']}' (its URL stops working)",
+                   slides=len(data["slides"]), comments=len(data["comments"]))
     purge_board(board_id)
     log_event(logger, logging.INFO, "board deleted", board_id=board_id)
 
@@ -126,7 +149,7 @@ def load(board_id: str) -> dict:
     items = db.query(f"BOARD#{board_id}")
     meta = next((i for i in items if i["SK"] == "META"), None)
     if not meta:
-        raise not_found("Board")
+        raise not_found("Board", board_id)
     slides = sorted((i for i in items if i["SK"].startswith("SLIDE#")), key=lambda s: (s["position"], s["SK"]))
     comments = sorted((i for i in items if i["SK"].startswith("COMMENT#")), key=lambda c: c["SK"])
     likes = [i for i in items if i["SK"].startswith("LIKE#")]
@@ -186,7 +209,7 @@ def thread_comments(comments: list[dict], include_hidden: bool, decorate=None) -
     return by_slide
 
 
-def add_comment(board_id: str, slide_id, text, viewer: Viewer, parent_id=None) -> dict:
+def add_comment(board_id: str, slide_id, text, viewer: Viewer, parent_id=None, dry_run: bool = False) -> dict:
     """New comment, or a reply (parent_id; one level deep). A staff reply marks the question as answered."""
     board = get_board_meta(board_id)
     is_staff = bool(viewer.user and spaces.role_of(board["space_id"], viewer.user))
@@ -196,17 +219,21 @@ def add_comment(board_id: str, slide_id, text, viewer: Viewer, parent_id=None) -
     if parent_id:
         parent = db.get(f"BOARD#{board_id}", f"COMMENT#{parent_id}") if isinstance(parent_id, str) else None
         if not parent or (parent.get("hidden") and not is_staff):
-            raise not_found("Comment")
+            raise not_found("Comment", parent_id)
         if parent.get("parent_id"):
             raise ApiError(400, "invalid_input", "Replies can only be added to top-level comments")
         slide_id = parent["slide_id"]
     if not isinstance(slide_id, str) or not db.get(f"BOARD#{board_id}", f"SLIDE#{slide_id}"):
-        raise not_found("Slide")
+        raise not_found("Slide", slide_id)
     text = (text or "").strip() if isinstance(text, str) else ""
     if not text:
         raise ApiError(400, "invalid_input", "Comment must not be empty")
     if len(text) > MAX_COMMENT_LENGTH:
         raise ApiError(400, "invalid_input", f"Comment is too long (max {MAX_COMMENT_LENGTH} characters)")
+    if dry_run:
+        target = f"as a reply to {parent['author_name']}'s comment" if parent else f"on slide '{slide_id}'"
+        return dry(f"post {target}, visible to students, in the name '{viewer.name}'" + (" (staff)" if is_staff else "")
+                   + (" and mark the question as answered" if parent and is_staff else ""), text=text)
     comment_id = sortable_id()
     item = {"PK": f"BOARD#{board_id}", "SK": f"COMMENT#{comment_id}", "comment_id": comment_id,
             "slide_id": slide_id, "text": text, "author_name": viewer.name, "author_key": viewer.key,
@@ -226,7 +253,7 @@ def set_comment_status(user: dict, board_id: str, comment_id: str, answered=None
     require_board(user, board_id, "editor")
     comment = db.get(f"BOARD#{board_id}", f"COMMENT#{comment_id}")
     if not comment:
-        raise not_found("Comment")
+        raise not_found("Comment", comment_id)
     fields = {}
     for key, value in (("answered", answered), ("pinned", pinned), ("hidden", hidden)):
         if value is not None:
@@ -251,17 +278,20 @@ def _delete_likes_for(board_id: str, target_ids: set[str]) -> None:
     db.batch_delete([(l["PK"], l["SK"]) for l in likes if l["target"] in target_ids])
 
 
-def delete_comment(board_id: str, comment_id: str, viewer: Viewer | None) -> None:
+def delete_comment(board_id: str, comment_id: str, viewer: Viewer | None, dry_run: bool = False) -> dict | None:
     """Workspace members (owners and editors) can delete any comment; authors can delete their own."""
     board = get_board_meta(board_id)
     comment = db.get(f"BOARD#{board_id}", f"COMMENT#{comment_id}")
     if not comment:
-        raise not_found("Comment")
+        raise not_found("Comment", comment_id)
     is_author = viewer is not None and viewer.key == comment["author_key"]
     is_owner = bool(viewer and viewer.user and spaces.role_of(board["space_id"], viewer.user))  # any staff member
     if not (is_author or is_owner):
         raise forbidden("Only the author or a workspace member can delete this comment")
     reply_ids = {c["comment_id"] for c in db.query(f"BOARD#{board_id}", "COMMENT#") if c.get("parent_id") == comment_id}
+    if dry_run:
+        return dry(f"delete the comment by {comment['author_name']} and its {len(reply_ids)} repl(y/ies)",
+                   text_preview=comment["text"][:80])
     db.batch_delete([(f"BOARD#{board_id}", f"COMMENT#{cid}") for cid in reply_ids | {comment_id}])
     _delete_likes_for(board_id, reply_ids | {comment_id})
     log_event(logger, logging.INFO, "comment deleted", board_id=board_id, comment_id=comment_id,
@@ -279,7 +309,7 @@ def toggle_like(board_id: str, viewer: Viewer, slide_id=None, comment_id=None) -
     target = slide_id or comment_id
     target_sk = f"SLIDE#{slide_id}" if slide_id else f"COMMENT#{comment_id}"
     if not isinstance(target, str) or not db.get(f"BOARD#{board_id}", target_sk):
-        raise not_found("Slide" if slide_id else "Comment")
+        raise not_found("Slide" if slide_id else "Comment", target)
     like_key = (f"BOARD#{board_id}", f"LIKE#{target}#{viewer.key}")
     if db.put({"PK": like_key[0], "SK": like_key[1], "target": target, "viewer": viewer.key,
                "created_at": now_iso()}, if_absent=True):
@@ -306,7 +336,8 @@ def add_slides(board_id: str, rendered: list[dict], who: str | None = None) -> l
                 "key": r["key"], "width": r["width"], "height": r["height"], "source": r["source"],
                 "position": pos, "likes": 0, "created_at": now_iso()}
         db.put(item)
-        created.append({k: item[k] for k in ("slide_id", "position", "width", "height", "source")})
+        created.append({"slide_id": item["slide_id"], "number": pos + 1,  # 1-based like get_board
+                        **{k: item[k] for k in ("width", "height", "source")}})
     db.update(f"BOARD#{board_id}", "META", {"updated_at": now_iso()})
     touch(board_id, who)
     return created
@@ -334,10 +365,13 @@ def _remove_slides(board_id: str, slide_ids: set[str]) -> None:
     media.delete_keys([s["key"] for s in data["slides"] if s["slide_id"] in slide_ids])
 
 
-def delete_slide(user: dict, board_id: str, slide_id: str) -> None:
+def delete_slide(user: dict, board_id: str, slide_id: str, dry_run: bool = False) -> dict | None:
     require_board(user, board_id, "editor")
     if not db.get(f"BOARD#{board_id}", f"SLIDE#{slide_id}"):
-        raise not_found("Slide")
+        raise not_found("Slide", slide_id)
+    if dry_run:
+        n = len([c for c in db.query(f"BOARD#{board_id}", "COMMENT#") if c["slide_id"] == slide_id])
+        return dry(f"delete slide '{slide_id}' and its {n} comment(s)")
     _remove_slides(board_id, {slide_id})
     touch(board_id, user["name"])
     log_event(logger, logging.INFO, "slide deleted", board_id=board_id, slide_id=slide_id)

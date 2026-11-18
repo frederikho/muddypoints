@@ -313,7 +313,7 @@ def import_url(user: dict, space_id: str, url) -> dict:
 def get_file(space_id: str, file_id: str) -> dict:
     item = db.get(f"SPACE#{space_id}", f"FILE#{file_id}") if file_id else None
     if not item:
-        raise not_found("File")
+        raise not_found("File", file_id)
     return item
 
 
@@ -370,9 +370,11 @@ def mark_published(space_id: str, file_id: str, board: dict) -> None:
         db.update(f"SPACE#{space_id}", f"FILE#{file_id}", {"published_to": used[-50:]})
 
 
-def delete(user: dict, space_id: str, file_id: str) -> None:
+def delete(user: dict, space_id: str, file_id: str, dry_run: bool = False) -> dict | None:
     spaces.require_space(user, space_id, "editor")
     item = get_file(space_id, file_id)
+    if dry_run:
+        return boards.dry(f"delete '{pretty_name(item['name'])}' from the workspace files (boards that show it are not affected)")
     db.delete(f"SPACE#{space_id}", f"FILE#{file_id}")
     db.delete(f"SPACE#{space_id}", f"FILEHASH#{item['sha256']}")
     # The blob itself stays (it may be used by other workspaces; storage is cheap).
@@ -434,11 +436,12 @@ def contact_sheet(user: dict, space_id: str, file_id: str, from_page=1, to_page=
 
 # --- board history --------------------------------------------------------------------------
 
-def record_history(board_id: str, by: str, mode: str, files: list[dict], archive_key: str | None) -> None:
+def record_history(board_id: str, by: str, mode: str, files: list[dict], archive_key: str | None,
+                   archive_skipped: str | None = None) -> None:
     db.put({"PK": f"BOARD#{board_id}", "SK": f"HIST#{sortable_id()}", "at": now_iso(), "by": by, "mode": mode,
             "files": [{"file_id": f.get("file_id"), "name": f.get("name"),
                        "title": pretty_name(f["name"]) if f.get("name") else f.get("title")} for f in files],
-            "archive_key": archive_key})
+            "archive_key": archive_key, "archive_skipped": archive_skipped})
 
 
 def history(user: dict, board_id: str) -> list[dict]:
@@ -447,5 +450,7 @@ def history(user: dict, board_id: str) -> list[dict]:
     return [{"at": i["at"], "by": i.get("by"), "mode": i.get("mode"),
              "files": [{**f, "title": pretty_name(f["name"]) if f.get("name") else f.get("title")}
                        for f in i.get("files", [])],
-             "archived_previous_material": bool(i.get("archive_key")), "workspace_id": board["space_id"]}
+             "archived_previous_material": bool(i.get("archive_key")),
+             **({"archive_skipped": i["archive_skipped"]} if i.get("archive_skipped") else {}),
+             "workspace_id": board["space_id"]}
             for i in items]

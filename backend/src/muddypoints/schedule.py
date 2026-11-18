@@ -154,8 +154,8 @@ def add_session(user: dict, board_id: str, spec: dict) -> dict:
     log_event(logger, logging.INFO, "session planned", board_id=board_id, session_id=item["session_id"],
               starts_at=item["starts_at"])
     out = _public(item, board_tz(board))
-    warnings = _warnings([item], board_tz(board))
-    return {**out, "warning": warnings[0]} if warnings else out
+    warnings = _warnings([item], board_tz(board), [x for x in _sessions(board_id) if x["SK"] != item["SK"]])
+    return {**out, "warnings": warnings} if warnings else out
 
 
 def run_now(user: dict, board_id: str, session_id: str) -> dict:
@@ -163,7 +163,7 @@ def run_now(user: dict, board_id: str, session_id: str) -> dict:
     board, _ = boards.require_board(user, board_id, "editor")
     s = db.get(f"BOARD#{board_id}", f"SESSION#{session_id}")
     if not s:
-        raise not_found("Session")
+        raise not_found("Session", session_id)
     if s["status"] in ("live", "switching"):
         raise ApiError(409, "session_live", "This session is already live")
     now = _now()
@@ -178,17 +178,43 @@ def run_now(user: dict, board_id: str, session_id: str) -> dict:
     result = advance(board_id, now)
     if not result or result.get("session_id") != session_id:
         raise ApiError(409, "not_switched", f"The switch did not happen: {result}")
-    return get_schedule(user, board_id)
+    return {**get_schedule(user, board_id), "switch": result}
 
 
 PAST_NOTE = ("is in the past: it goes live at the next scheduler run (within 5 minutes). If several sessions are "
              "in the past, only the latest of them goes live; the earlier ones are marked 'skipped'.")
 
 
-def _warnings(items: list[dict], tz: ZoneInfo) -> list[str]:
+CLOSE_MINUTES = 60
+
+
+def _warnings(items: list[dict], tz: ZoneInfo, others: list[dict] | None = None) -> list[str]:
+    """Non-blocking hints: past times, sessions at the same/very close times, the same file in several sessions.
+    `others` = sessions that stay planned besides the new ones (checked together with them)."""
     now = _now()
-    return [f"Session '{session_title(i)}' at {local(i['starts_at'], tz)} {PAST_NOTE}" for i in items
-            if i["starts_at"] <= now]
+    out = [f"Session '{session_title(i)}' at {local(i['starts_at'], tz)} {PAST_NOTE}" for i in items
+           if i["starts_at"] <= now]
+    planned = sorted(items + [o for o in (others or []) if o.get("status") == "planned"], key=lambda x: x["starts_at"])
+    to_dt = lambda iso: datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    for a, b in zip(planned, planned[1:]):
+        gap = (to_dt(b["starts_at"]) - to_dt(a["starts_at"])).total_seconds() / 60
+        if gap == 0:
+            out.append(f"Sessions '{session_title(a)}' and '{session_title(b)}' start at the same time "
+                       f"({local(a['starts_at'], tz)}); only the later one would stay visible.")
+        elif gap < CLOSE_MINUTES:
+            out.append(f"Sessions '{session_title(a)}' and '{session_title(b)}' start only {gap:.0f} minutes apart "
+                       f"({local(a['starts_at'], tz)} / {local(b['starts_at'], tz)}) - intended?")
+    seen: dict[str, list[dict]] = {}
+    names: dict[str, str] = {}
+    for sess in planned:
+        for f in session_files(sess):
+            seen.setdefault(f["file_id"], []).append(sess)
+            names[f["file_id"]] = library.pretty_name(f.get("name") or "")
+    for file_id, sessions in seen.items():
+        if len(sessions) > 1:
+            out.append(f"File '{names[file_id]}' is scheduled in {len(sessions)} sessions: "
+                       + ", ".join(local(x["starts_at"], tz) for x in sessions) + " - intended?")
+    return out
 
 
 def set_schedule(user: dict, board_id: str, sessions, replace_planned: bool = True, dry_run: bool = False) -> dict:
@@ -199,7 +225,8 @@ def set_schedule(user: dict, board_id: str, sessions, replace_planned: bool = Tr
         raise ApiError(400, "invalid_input", "'sessions' must be a list (max 100)")
     items = [_new_session(user, board, spec) for spec in sessions]  # validate everything first
     tz = board_tz(board)
-    warnings = _warnings(items, tz)
+    kept_planned = [] if replace_planned else [x for x in _sessions(board_id) if x["status"] == "planned"]
+    warnings = _warnings(items, tz, kept_planned)
     if dry_run:
         kept = [s for s in _sessions(board_id) if not (replace_planned and s["status"] == "planned")]
         preview = sorted(kept + items, key=lambda s: (s["starts_at"], s["SK"]))
@@ -219,7 +246,7 @@ def update_session(user: dict, board_id: str, session_id: str, starts_at=None, t
     board, _ = boards.require_board(user, board_id, "editor")
     s = db.get(f"BOARD#{board_id}", f"SESSION#{session_id}")
     if not s:
-        raise not_found("Session")
+        raise not_found("Session", session_id)
     if s["status"] != "planned":
         raise ApiError(409, "not_planned", "Only planned sessions can be changed")
     tz, fields = board_tz(board), {}
@@ -237,13 +264,15 @@ def update_session(user: dict, board_id: str, session_id: str, starts_at=None, t
     return _public(s, tz)
 
 
-def remove_session(user: dict, board_id: str, session_id: str) -> None:
+def remove_session(user: dict, board_id: str, session_id: str, dry_run: bool = False) -> dict | None:
     boards.require_board(user, board_id, "editor")
     s = db.get(f"BOARD#{board_id}", f"SESSION#{session_id}")
     if not s:
-        raise not_found("Session")
+        raise not_found("Session", session_id)
     if s["status"] in ("switching", "live"):
         raise ApiError(409, "session_live", "The live session can't be removed; schedule the next one instead")
+    if dry_run:
+        return boards.dry(f"remove the {s['status']} session '{session_title(s)}' ({s['starts_at']})")
     db.delete(f"BOARD#{board_id}", f"SESSION#{session_id}")
     _refresh_next_switch(board_id)
 
@@ -302,7 +331,9 @@ def advance(board_id: str, now: str | None = None) -> dict | None:
               skipped=len(skipped))
     notify.board_changed(board_id, f"Now showing “{session_title(target)}”",
                          f"Scheduled switch at {local(target['starts_at'], board_tz(board))}.")
-    return {"status": "live", "session_id": target["session_id"], "skipped": len(skipped)}
+    return {"status": "live", "session_id": target["session_id"], "skipped": len(skipped),
+            "archived": bool(result.get("archive")), **({"archive_skipped": result["archive_skipped"]}
+                                                       if result.get("archive_skipped") else {})}
 
 
 def advance_if_due(board: dict) -> None:
