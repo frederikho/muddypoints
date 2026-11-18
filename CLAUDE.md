@@ -94,7 +94,16 @@ cd backend && ../.venv/bin/pytest          # must pass before committing; CI run
 - The frontend has no build: edit files directly. Use `el()` for DOM and never use `innerHTML` with user content (XSS). Keep it working on phones (students).
 
 ## Deploying
-Pushing to `main` triggers `.github/workflows/deploy.yml`: pytest → `sam build && sam deploy` → write `config.js` → GitHub Pages → tag `deploy-YYYYMMDD-HHMMSS`. Pull requests only run the tests. In Claude Web it's fine to commit small, tested changes directly to `main`. For bigger changes, open a PR so CI runs first.
+Pushing to `main` triggers `.github/workflows/deploy.yml`: pytest → `sam build && sam deploy` → write `config.js` → GitHub Pages → tag `deploy-YYYYMMDD-HHMMSS`. Pull requests only run the tests. **Everything merged to `main` is live within minutes** — real students use it.
+
+## Working from Claude Code on the web (claude.ai/code)
+Admins change the app by starting a session on this repo at claude.ai/code. In those sessions:
+- Setup is automatic: the SessionStart hook (`.claude/settings.json` → `scripts/claude-web-setup.sh`) installs the test dependencies. Run tests with `cd backend && python3 -m pytest` (there is no `.venv` in the sandbox). If the hook output is missing, run the script with `CLAUDE_CODE_REMOTE=true`.
+- **Work on a branch and open a pull request** — do not push to `main` directly. Describe the change for a non-programmer in the PR (what changes for staff/students, how it was tested). The user merges it on GitHub; the merge deploys.
+- Run the test suite before pushing; add/adjust tests for every behavior change (see Development workflow).
+- Frontend changes cannot be tested in a browser there: keep them small, reuse existing helpers (`el()`, `cogMenu()`, CSS tokens), and say in the PR what the user should click to check it after deployment.
+- No AWS credentials exist in the sandbox — never try to deploy manually; CI does it. Logs/data questions go through the Muddy Points MCP connector (`get_logs`) instead.
+- Rolling back from the web: open a PR that reverts the bad commit (`git revert <sha>`), see below.
 
 ## Rollback (code)
 1. Find the bad change: `git log --oneline -20` and the tags with `git tag -l 'deploy-*' --sort=-creatordate | head`.
