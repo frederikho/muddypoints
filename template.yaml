@@ -20,6 +20,11 @@ Parameters:
     Default: ""
     NoEcho: true
     Description: Brevo API key. If set, emails are sent via Brevo instead of SES (MailFrom must be a Brevo-verified sender).
+  FeedbackEmail:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Private address that receives the feedback form (GitHub secret FEEDBACK_EMAIL). Empty = only stored.
   AllowedEmailDomains:
     Type: String
     Default: ""
@@ -102,6 +107,7 @@ Resources:
           FRONTEND_URL: !Ref FrontendUrl
           MAIL_FROM: !Ref MailFrom
           BREVO_API_KEY: !Ref BrevoApiKey
+          FEEDBACK_EMAIL: !Ref FeedbackEmail
           ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
           LOG_LEVEL: !Ref LogLevel
           LOG_GROUP_NAME: !Ref ApiLogGroup

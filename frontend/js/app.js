@@ -1,4 +1,4 @@
-// Dashboard SPA (hash routing): #/ spaces, #/space/<id>, #/account. Login/registration when logged out.
+// Dashboard SPA (hash routing): #/ workspaces, #/space/<id> (a workspace), #/account. Login/registration when logged out.
 import { api, session, el, toast, showError, busy, copyText, fmtDate, timeAgo, API_ORIGIN, backgroundPicker, cogMenu, menuItem, avatar } from "./api.js";
 
 const main = document.getElementById("main");
@@ -7,7 +7,7 @@ const nav = document.getElementById("nav");
 function renderNav() {
   const user = session.user;
   nav.replaceChildren(...(user ? [
-    el("a", { href: "#/" }, "Spaces"),
+    el("a", { href: "#/" }, "Workspaces"),
     el("a", { href: "#/account" }, user.name),
     el("button", { class: "ghost sm", onclick: () => { session.clear(); location.hash = "#/"; route(); } }, "Log out"),
   ] : []));
@@ -113,7 +113,7 @@ function authView(tab = "login") {
         feature("♥", "Hot spots at a glance", "Students like slides and each other's questions — the muddiest points float to the top."),
         feature("🔗", "One link per class", "Replace the material every week; the link and students' bookmarks stay the same. Old comments are archived as PDF."),
         feature("📄", "PDF export", "Every slide with its comments in one tidy PDF, ready to upload to OLAT or share with your team."),
-        feature("👥", "Teaching teams", "Share a course space with colleagues and tutors. Owners manage, editors help out."),
+        feature("👥", "Teaching teams", "Share a workspace with colleagues and tutors: boards, files and lecture slides are shared."),
         feature("✨", "Works with Claude", "Connect Claude and just ask: “export this week's questions and put up lecture 5”."))),
     el("section", { class: "ai-section" },
       el("div", { class: "eyebrow center" }, "Works with your AI assistant"),
@@ -128,14 +128,14 @@ function authView(tab = "login") {
         el("ul", { class: "ai-list" },
           el("li", {}, el("strong", {}, "Weekly rotation: "), "“Save this week's comments for OLAT and put up the slides for lecture 5 from this Drive link.” The old state is archived automatically."),
           el("li", {}, el("strong", {}, "Prepare the lecture: "), "“Summarise the most-liked questions on the board for lecture 4 and tell me which slides to revisit.”"),
-          el("li", {}, el("strong", {}, "Set up a new course: "), "“Create a space for Statistics II, add boards for the 12 weeks and invite my tutor as editor.”"),
+          el("li", {}, el("strong", {}, "Set up a new course: "), "“Create a board for Statistics II in our workspace and invite my tutor as editor.”"),
           el("li", {}, el("strong", {}, "Tidy up: "), "“Lock the board after class, delete the spam comment on slide 7 and reorder the slides.”"),
           el("li", {}, el("strong", {}, "Share with your team: "), "“Export all boards of my course as PDFs and give me the download links.”"))),
       el("p", { class: "muted small center" }, "Uses your own Claude subscription (claude.ai or the desktop app). ",
         el("span", { class: "soon" }, "ChatGPT support coming soon."))),
     el("section", { class: "auth-section" },
       el("div", {}, el("h2", {}, "Ready for your next lecture?"),
-        el("p", { class: "muted" }, "Staff accounts are free. Create a space for your course, add one board per class and share the link with your students.")),
+        el("p", { class: "muted" }, "Staff accounts are free. Create a workspace for your teaching team, add one board per course and share its link with your students.")),
       authCard),
     el("footer", { class: "muted small center" }, "Muddy Points — named after the “muddiest point” classroom technique.")));
 }
@@ -170,7 +170,7 @@ function activityLine(at, by, where) {
 
 async function spacesView() {
   const { spaces } = await api("GET", "/api/spaces");
-  const create = inlineCreate("New space", "Course name, e.g. “Statistics 101 – WS 26/27”", async (name) => {
+  const create = inlineCreate("New workspace", "Team or chair, e.g. “Chair of Environmental Economics”", async (name) => {
     const { space } = await api("POST", "/api/spaces", { name });
     location.hash = `#/space/${space.space_id}`;
   });
@@ -195,11 +195,11 @@ async function spacesView() {
         el("span", { class: "muted small" }, `${plural(s.board_count, "board")} · ${plural(s.member_count, "member")}`)));
   };
   main.replaceChildren(
-    el("div", { class: "section-title", style: "margin-top:0" }, el("h1", { style: "margin:0" }, "Your spaces"), create.button),
+    el("div", { class: "section-title", style: "margin-top:0" }, el("h1", { style: "margin:0" }, "Your workspaces"), create.button),
     create.form,
     el("div", { class: "grid", style: "margin-top:16px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))" },
       spaces.length ? spaces.map(card)
-        : el("p", { class: "muted" }, "No spaces yet. A space usually is one course; inside it you create one board per class. Use “+ New space” above.")));
+        : el("p", { class: "muted" }, "No workspaces yet. A workspace is your teaching team; inside it you create one board per course. Use “+ New workspace” above.")));
 }
 
 async function spaceView(spaceId) {
@@ -213,13 +213,13 @@ async function spaceView(spaceId) {
   const title = el("h1", {}, space.name);
   const header = el("div", { class: "section-title", style: "margin-top:0" }, title, el("div", { class: "row" },
     el("button", { class: "sm", onclick: async () => {
-      const name = prompt("New name for this space:", space.name);
+      const name = prompt("New name for this workspace:", space.name);
       if (name) { await api("PATCH", `/api/spaces/${spaceId}`, { name }).catch(showError); refresh(); }
     } }, "Rename"),
     isOwner && el("button", { class: "sm danger", onclick: async () => {
-      if (prompt(`This deletes the space with ALL boards, slides and comments.\nType the space name to confirm:`) !== space.name) return;
+      if (prompt(`This deletes the workspace with ALL boards, slides, comments and files.\nType the workspace name to confirm:`) !== space.name) return;
       await api("DELETE", `/api/spaces/${spaceId}`).then(() => (location.hash = "#/")).catch(showError);
-    } }, "Delete space")));
+    } }, "Delete workspace")));
 
   // boards
   const createBoard = inlineCreate("New board", "Board name, e.g. “Lecture 3”", async (name) => {
@@ -236,7 +236,7 @@ async function spaceView(spaceId) {
         if (name) { await patch({ name }).catch(showError); refresh(); }
       }),
       menuItem(b.locked ? "🔓 Reopen comments" : "🔒 Close comments", async () => { close(); await patch({ locked: !b.locked }).catch(showError); refresh(); }),
-      isOwner && menuItem("Delete board…", async () => {
+      menuItem("Delete board…", async () => {
         close();
         if (!confirm(`Delete board “${b.name}” with all slides and comments? Its link stops working.`)) return;
         await api("DELETE", `/api/boards/${b.board_id}`).catch(showError); refresh();
@@ -262,7 +262,7 @@ async function spaceView(spaceId) {
     e.preventDefault();
     busy(inviteForm.querySelector("button"), async () => {
       const r = await api("POST", `/api/spaces/${spaceId}/members`, { email: inviteEmail.value, role: inviteRole.value });
-      toast(r.status === "added" ? "Added to the space" : "Invitation saved — they get access when they register with this email");
+      toast(r.status === "added" ? "Added to the workspace" : "Invitation saved — they get access when they register with this email");
       refresh();
     });
   });
@@ -277,23 +277,23 @@ async function spaceView(spaceId) {
         return sel;
       })()
       : el("span", { class: `badge ${m.role}` }, m.role)),
-    el("td", { style: "text-align:right" }, (isOwner || m.user_id === me.user_id) && el("button", { class: "sm danger", onclick: async () => {
+    el("td", { style: "text-align:right" }, (isOwner || m.user_id === me.user_id || m.role === "editor") && el("button", { class: "sm danger", onclick: async () => {
       const leaving = m.user_id === me.user_id;
-      if (!confirm(leaving ? "Leave this space?" : `Remove ${m.name} from this space?`)) return;
+      if (!confirm(leaving ? "Leave this workspace?" : `Remove ${m.name} from this workspace?`)) return;
       await api("DELETE", `/api/spaces/${spaceId}/members/${m.user_id}`).then(() => (leaving ? (location.hash = "#/") : refresh())).catch(showError);
     } }, m.user_id === me.user_id ? "Leave" : "Remove"))));
   const inviteRows = members.invites.map((i) => el("tr", {},
     el("td", {}, i.email, el("div", { class: "muted small" }, "invited — not registered yet")),
     el("td", {}, el("span", { class: "badge" }, i.role)),
-    el("td", { style: "text-align:right" }, isOwner && el("button", { class: "sm danger", onclick: async () => {
+    el("td", { style: "text-align:right" }, el("button", { class: "sm danger", onclick: async () => {
       await api("DELETE", `/api/spaces/${spaceId}/invites/${encodeURIComponent(i.email)}`).catch(showError); refresh();
     } }, "Revoke"))));
 
   main.replaceChildren(
-    el("div", { class: "small" }, el("a", { href: "#/" }, "← All spaces")),
+    el("div", { class: "small" }, el("a", { href: "#/" }, "← All workspaces")),
     header,
-    el("p", { class: "muted small" }, `You are ${space.role === "owner" ? "an owner" : "an editor"} of this space.`,
-      space.role === "editor" ? " Editors can do everything except deleting and managing roles." : ""),
+    el("p", { class: "muted small" }, `You are ${space.role === "owner" ? "an owner" : "an editor"} of this workspace.`,
+      space.role === "editor" ? " Editors can do everything except deleting the workspace and managing owners." : ""),
     el("div", { class: "section-title" }, el("h2", { style: "margin:0" }, "Boards"), createBoard.button),
     createBoard.form,
     boards.length ? el("div", { class: "grid", style: "margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))" }, boardCards)
@@ -363,13 +363,13 @@ async function accountView() {
     el("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(300px,1fr))" }, profile, pwForm),
     el("div", { class: "card stack", style: "margin-top:16px" },
       el("h2", {}, "Claude / MCP access"),
-      el("p", { class: "muted small" }, "Connect Claude to Muddy Points to manage your spaces and boards by chatting, e.g. “export this week's comments” or “put up the slides for lecture 5”. Claude acts with your permissions."),
+      el("p", { class: "muted small" }, "Connect Claude to Muddy Points to manage your workspaces and boards by chatting, e.g. “export this week's comments” or “put up the slides for lecture 5”. Claude acts with your permissions."),
       el("ol", { class: "small steps-list" },
         el("li", {}, el("strong", {}, "Create a key"), " below and copy the connector URL. It is shown only once."),
         el("li", {}, "In Claude (claude.ai or desktop app) open ", el("strong", {}, "Settings → Connectors → Add custom connector"), "."),
         el("li", {}, "Name: ", el("code", {}, "Muddy Points"), ". URL: paste the connector URL. Authentication: ", el("strong", {}, "No authentication"),
           " (the key is part of the URL). Leave request headers empty. Click ", el("strong", {}, "Add"), "."),
-        el("li", {}, "In a new chat, switch on ", el("strong", {}, "Muddy Points"), " in the + / tools menu and ask: “Which spaces do I have in Muddy Points?”"),
+        el("li", {}, "In a new chat, switch on ", el("strong", {}, "Muddy Points"), " in the + / tools menu and ask: “Which workspaces and boards do I have in Muddy Points?”"),
         el("li", {}, el("strong", {}, "New slides: "), "ask Claude, e.g. “Replace the ERE slides with the new lecture”. It replies with an upload link: open it and drop the PDF in. Or give Claude a Google Drive / Dropbox link and it loads the PDF itself.")),
       el("p", { class: "muted small" }, "Treat the URL like a password. If it leaks or you lose it, revoke the key here and create a new one."),
       keyForm, newKeyBox,
@@ -388,7 +388,7 @@ async function route() {
     else await spacesView();
   } catch (e) {
     if (!session.token) return authView();
-    main.replaceChildren(el("div", { class: "alert" }, e.message), el("p", {}, el("a", { href: "#/" }, "← Back to your spaces")));
+    main.replaceChildren(el("div", { class: "alert" }, e.message), el("p", {}, el("a", { href: "#/" }, "← Back to your workspaces")));
   }
 }
 

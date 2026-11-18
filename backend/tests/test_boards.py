@@ -51,7 +51,7 @@ def test_upload_rejects_bad_input(client, owner):
     assert Client().post(f"/api/boards/{bid}/uploads", {"files": []})[0] == 401
 
 
-def test_replace_requires_owner_and_archives(client, owner):
+def test_replace_by_editor_and_archives(client, owner):
     bid, sid = owner["board_id"], owner["space_id"]
     upload(client, bid, [("w1.pdf", "application/pdf", make_pdf(2))])
     student = anon_client()
@@ -61,12 +61,11 @@ def test_replace_requires_owner_and_archives(client, owner):
     bob = Client()
     register(bob, email="bob@uni.example", name="Bob")
     client.post(f"/api/spaces/{sid}/members", {"email": "bob@uni.example"})
-    s, d = upload(bob, bid, [("w2.pdf", "application/pdf", make_pdf(1))], mode="replace")
-    assert s == 403
     s, d = upload(bob, bid, [("w2.pdf", "application/pdf", make_pdf(1))], mode="append")
     assert s == 200
 
-    s, d = upload(client, bid, [("w2.pdf", "application/pdf", make_pdf(1))], mode="replace")
+    # editors may replace too (old state is archived)
+    s, d = upload(bob, bid, [("w2.pdf", "application/pdf", make_pdf(1))], mode="replace")
     assert s == 200 and d["removed_slides"] == 3 and len(d["added_slides"]) == 1
     assert d["archive"]["comments"] == 1
     view = Client().get(f"/api/boards/{bid}")[1]

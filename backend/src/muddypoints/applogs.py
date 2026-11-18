@@ -14,8 +14,8 @@ LEVEL_PATTERNS = {
 
 
 def fetch(user: dict, minutes=60, level="INFO", contains=None, limit=100) -> dict:
-    if not any(m["role"] == "owner" for m in db.query_gsi1(f"USER#{user['user_id']}", "SPACE#")):
-        raise forbidden("Only users who own at least one space can read logs")
+    if not db.query_gsi1(f"USER#{user['user_id']}", "SPACE#"):
+        raise forbidden("Only members of at least one workspace can read logs")
     if not settings.log_group:
         raise ApiError(503, "logs_unavailable", "LOG_GROUP_NAME is not configured (local dev?)")
     level = (level or "INFO").upper()

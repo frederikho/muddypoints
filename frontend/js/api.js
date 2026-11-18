@@ -192,3 +192,40 @@ export async function busy(button, fn) {
   if (button) button.disabled = true;
   try { return await fn(); } catch (e) { showError(e); } finally { if (button) button.disabled = prev; }
 }
+
+// --- feedback dialog: any element with [data-feedback] opens it ------------------------------------
+export function openFeedback() {
+  const message = el("textarea", { rows: 5, maxlength: 5000, required: true, placeholder: "What would make Muddy Points better? Bugs, ideas, feature wishes…" });
+  const email = el("input", { type: "email", placeholder: "you@university.edu (optional, if you'd like an answer)", value: session.user?.email || "" });
+  const honeypot = el("input", { type: "text", name: "website", tabindex: "-1", autocomplete: "off", class: "hp", "aria-hidden": "true" });
+  const status = el("div");
+  const close = () => overlay.remove();
+  const form = el("form", { class: "card stack dialog", role: "dialog", "aria-label": "Feedback" },
+    el("div", { class: "panel-head" }, el("h2", {}, "💡 Feedback & feature ideas"),
+      el("button", { class: "ghost", type: "button", "aria-label": "Close", onclick: close }, "✕")),
+    el("p", { class: "muted small" }, "Goes straight to the person who maintains Muddy Points. Not public."),
+    message, email, honeypot, status,
+    el("div", { class: "row", style: "justify-content:flex-end" },
+      el("button", { type: "button", onclick: close }, "Cancel"), el("button", { class: "primary", type: "submit" }, "Send")));
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    busy(form.querySelector("button[type=submit]"), async () => {
+      try {
+        await api("POST", "/api/feedback", { message: message.value, email: email.value, website: honeypot.value,
+          page: location.pathname + location.search });
+        form.replaceChildren(el("h2", {}, "Thank you! 🙌"), el("p", { class: "muted" }, "Your message has been sent."),
+          el("div", { class: "row", style: "justify-content:flex-end" }, el("button", { class: "primary", type: "button", onclick: close }, "Close")));
+      } catch (err) {
+        status.replaceChildren(el("div", { class: "alert" }, err.message));
+      }
+    });
+  });
+  const overlay = el("div", { class: "dialog-backdrop", onclick: (e) => { if (e.target === overlay) close(); } }, form);
+  document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
+  document.body.append(overlay);
+  message.focus();
+}
+document.addEventListener("click", (e) => {
+  const trigger = e.target.closest?.("[data-feedback]");
+  if (trigger) { e.preventDefault(); openFeedback(); }
+});

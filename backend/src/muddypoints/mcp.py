@@ -19,11 +19,12 @@ from .log import bind, get_logger, log_event
 logger = get_logger(__name__)
 SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
 INSTRUCTIONS = """Admin interface of the course feedback boards (Muddy Points).
-Hierarchy: space (e.g. a course) -> boards (one public link per class) -> slides (images) -> comments/likes.
+Hierarchy: workspace (a teaching team; members + shared files) -> boards (one per course, ONE public link for the
+whole semester whose content changes) -> slides (images) -> comments/likes.
 Students comment anonymously on slides via the public board URL.
 Typical weekly workflow for a board: export_board_pdf (save the comments for OLAT) and then
 replace_board_material with the new lecture PDF (this archives a PDF of the old comments automatically).
-Owners can delete things; editors can do everything else. IDs come from list_* tools.
+Owners can do everything; editors everything except deleting a workspace and managing owners. IDs come from list_* tools.
 New material:
 - The user gives a link (Google Drive/Dropbox share link or any public URL): use replace_board_material (weekly swap)
   or import_slides_from_url (add).
@@ -53,88 +54,88 @@ def tool(name: str, description: str, properties: dict | None = None, required: 
 
 
 S = {"type": "string"}
-SPACE = {"space_id": {**S, "description": "Space id (from list_spaces)"}}
+SPACE = {"workspace_id": {**S, "description": "Workspace id (from list_workspaces)"}}
 BOARD = {"board_id": {**S, "description": "Board id (from list_boards)"}}
 MODE = {"mode": {"type": "string", "enum": ["append", "replace"], "default": "append",
                  "description": "append = add after existing slides; replace = remove all old slides, comments "
-                                "and likes (owners only)"},
+                                "and likes"},
         "archive": {"type": "boolean", "default": True,
                     "description": "With mode=replace: first save a PDF of the old slides+comments to the archive"}}
 
 
 # --- account & spaces -----------------------------------------------------------------------
 
-@tool("whoami", "Show the user this API key belongs to and their spaces.", read_only=True)
+@tool("whoami", "Show the user this API key belongs to and their workspaces.", read_only=True)
 def _whoami(user, a):
-    return {"user": users.public_user(user), "spaces": spaces.list_spaces(user)}
+    return {"user": users.public_user(user), "workspaces": spaces.list_spaces(user)}
 
 
-@tool("list_spaces", "List the spaces you are a member of, with your role.", read_only=True)
-def _list_spaces(user, a):
+@tool("list_workspaces", "List the workspaces you are a member of, with your role, boards and members.", read_only=True)
+def _list_workspaces(user, a):
     return spaces.list_spaces(user)
 
 
-@tool("create_space", "Create a new space (you become its owner).", {"name": S}, ("name",))
-def _create_space(user, a):
+@tool("create_workspace", "Create a new workspace (you become its owner).", {"name": S}, ("name",))
+def _create_workspace(user, a):
     return spaces.create_space(user, a.get("name"))
 
 
-@tool("rename_space", "Rename a space.", {**SPACE, "name": S}, ("space_id", "name"))
-def _rename_space(user, a):
-    return spaces.rename_space(user, a["space_id"], a.get("name"))
+@tool("rename_workspace", "Rename a workspace.", {**SPACE, "name": S}, ("workspace_id", "name"))
+def _rename_workspace(user, a):
+    return spaces.rename_space(user, a["workspace_id"], a.get("name"))
 
 
-@tool("delete_space", "Permanently delete a space with ALL its boards, slides and comments (owners only).",
-      SPACE, ("space_id",), destructive=True)
-def _delete_space(user, a):
-    spaces.delete_space(user, a["space_id"])
-    return {"deleted": a["space_id"]}
+@tool("delete_workspace", "Permanently delete a workspace with ALL its boards, slides, comments and files (owners only).",
+      SPACE, ("workspace_id",), destructive=True)
+def _delete_workspace(user, a):
+    spaces.delete_space(user, a["workspace_id"])
+    return {"deleted": a["workspace_id"]}
 
 
-@tool("list_members", "List members (with roles) and pending invites of a space.", SPACE, ("space_id",),
+@tool("list_members", "List members (with roles) and pending invites of a workspace.", SPACE, ("workspace_id",),
       read_only=True)
 def _list_members(user, a):
-    return spaces.list_members(user, a["space_id"])
+    return spaces.list_members(user, a["workspace_id"])
 
 
-@tool("invite_member", "Share a space with someone by email. Existing users are added immediately, others get "
+@tool("invite_member", "Share a workspace with someone by email. Existing users are added immediately, others get "
       "access when they register with that email.",
       {**SPACE, "email": S, "role": {"type": "string", "enum": ["editor", "owner"], "default": "editor"}},
-      ("space_id", "email"))
+      ("workspace_id", "email"))
 def _invite(user, a):
-    return spaces.invite(user, a["space_id"], a.get("email"), a.get("role", "editor"))
+    return spaces.invite(user, a["workspace_id"], a.get("email"), a.get("role", "editor"))
 
 
 @tool("set_member_role", "Change a member's role (owners only).",
       {**SPACE, "user_id": S, "role": {"type": "string", "enum": ["editor", "owner"]}},
-      ("space_id", "user_id", "role"))
+      ("workspace_id", "user_id", "role"))
 def _set_role(user, a):
-    spaces.set_role(user, a["space_id"], a["user_id"], a.get("role"))
+    spaces.set_role(user, a["workspace_id"], a["user_id"], a.get("role"))
     return {"ok": True}
 
 
-@tool("remove_member", "Remove a member from a space (owners only; anyone can remove themselves).",
-      {**SPACE, "user_id": S}, ("space_id", "user_id"), destructive=True)
+@tool("remove_member", "Remove a member from a workspace (only owners can remove owners; anyone can remove themselves).",
+      {**SPACE, "user_id": S}, ("workspace_id", "user_id"), destructive=True)
 def _remove_member(user, a):
-    spaces.remove_member(user, a["space_id"], a["user_id"])
+    spaces.remove_member(user, a["workspace_id"], a["user_id"])
     return {"ok": True}
 
 
 # --- boards ---------------------------------------------------------------------------------
 
-@tool("list_boards", "List the boards of a space incl. their public URLs.", SPACE, ("space_id",), read_only=True)
+@tool("list_boards", "List the boards of a workspace incl. their public URLs.", SPACE, ("workspace_id",), read_only=True)
 def _list_boards(user, a):
-    return boards.list_boards(user, a["space_id"])
+    return boards.list_boards(user, a["workspace_id"])
 
 
 BACKGROUND = {"background": {"type": "string", "enum": list(boards.BACKGROUNDS),
                               "description": "Background texture of the board page"}}
 
 
-@tool("create_board", "Create a board in a space. Returns its public URL.", {**SPACE, "name": S, **BACKGROUND},
-      ("space_id", "name"))
+@tool("create_board", "Create a board (usually one per course) in a workspace. Returns its public URL.", {**SPACE, "name": S, **BACKGROUND},
+      ("workspace_id", "name"))
 def _create_board(user, a):
-    return boards.create_board(user, a["space_id"], a.get("name"), a.get("background"))
+    return boards.create_board(user, a["workspace_id"], a.get("name"), a.get("background"))
 
 
 @tool("get_board", "Board overview: slides (ids, order, source file, likes, comment count) and settings.", BOARD,
@@ -153,7 +154,7 @@ def _update_board(user, a):
     return boards.update_board(user, a["board_id"], a.get("name"), a.get("locked"), a.get("background"))
 
 
-@tool("delete_board", "Permanently delete a board incl. slides and comments (owners only). Its URL stops working.",
+@tool("delete_board", "Permanently delete a board incl. slides and comments. Its URL stops working.",
       BOARD, ("board_id",), destructive=True)
 def _delete_board(user, a):
     boards.delete_board(user, a["board_id"])
@@ -166,10 +167,10 @@ def _list_comments(user, a):
     return boards.list_comments(user, a["board_id"])
 
 
-@tool("delete_comment", "Delete a comment (owners only).", {**BOARD, "comment_id": S}, ("board_id", "comment_id"),
+@tool("delete_comment", "Delete a comment.", {**BOARD, "comment_id": S}, ("board_id", "comment_id"),
       destructive=True)
 def _delete_comment(user, a):
-    boards.require_board(user, a["board_id"], "owner")
+    boards.require_board(user, a["board_id"], "editor")
     boards.delete_comment(a["board_id"], a["comment_id"], identity.viewer_from_user(user))
     return {"ok": True}
 
@@ -195,13 +196,11 @@ def _replace(user, a):
       "Link for the user to upload a PDF/images to a board themselves (opens the board with the upload panel ready). "
       "Use this whenever the user attaches a file in the chat or wants to upload a file from their computer.",
       {**BOARD, "replace": {"type": "boolean", "default": False,
-                            "description": "Preselect 'Replace all slides' (weekly swap; owners only, old slides and "
+                            "description": "Preselect 'Replace all slides' (weekly swap; old slides and "
                                            "comments are archived as PDF first)"}}, ("board_id",), read_only=True)
 def _upload_link(user, a):
-    board, role = boards.require_board(user, a["board_id"], "editor")
+    board, _ = boards.require_board(user, a["board_id"], "editor")
     replace = bool(a.get("replace"))
-    if replace and role != "owner":
-        raise ApiError(403, "forbidden", "Only owners can replace all slides; use replace=false to add slides")
     url = boards.board_url(board["board_id"]) + ("#upload-replace" if replace else "#upload")
     return {"upload_link": url, "board": board["name"], "mode": "replace" if replace else "append",
             "tell_the_user": f"Open this link, log in if asked, and drop your PDF into the upload panel: {url}"
@@ -241,14 +240,14 @@ def _reorder(user, a):
     return boards.reorder_slides(user, a["board_id"], a.get("slide_ids"))
 
 
-@tool("delete_slide", "Delete one slide with its comments (owners only).", {**BOARD, "slide_id": S},
+@tool("delete_slide", "Delete one slide with its comments.", {**BOARD, "slide_id": S},
       ("board_id", "slide_id"), destructive=True)
 def _delete_slide(user, a):
     boards.delete_slide(user, a["board_id"], a["slide_id"])
     return {"ok": True}
 
 
-@tool("clear_board", "Remove all slides, comments and likes from a board (owners only). By default an archive PDF "
+@tool("clear_board", "Remove all slides, comments and likes from a board. By default an archive PDF "
       "is saved first.", {**BOARD, "archive": {"type": "boolean", "default": True}}, ("board_id",), destructive=True)
 def _clear(user, a):
     return export.clear_board(user, a["board_id"], a.get("archive", True))
@@ -274,7 +273,7 @@ def _archives(user, a):
 # --- debugging ------------------------------------------------------------------------------
 
 @tool("get_logs", "Read recent application logs (backend + frontend errors) from CloudWatch for debugging. "
-      "Only for users owning at least one space.",
+      "For workspace members.",
       {"minutes": {"type": "integer", "default": 60}, "level": {"type": "string", "enum": ["INFO", "WARNING", "ERROR"],
                                                                 "default": "WARNING"},
        "contains": {"type": "string", "description": "Only entries containing this text (e.g. a request_id)"},
@@ -302,7 +301,8 @@ def _call_tool(user: dict, params: dict) -> dict:
     try:
         result = entry["fn"](user, args)
         log_event(logger, logging.INFO, "mcp tool call", tool=name, ok=True)
-        return {"content": [{"type": "text", "text": json.dumps(result, default=str, ensure_ascii=False, indent=1)}],
+        text = json.dumps(result, default=str, ensure_ascii=False, indent=1).replace('"space_id"', '"workspace_id"')
+        return {"content": [{"type": "text", "text": text}],
                 "isError": False}
     except ApiError as err:
         log_event(logger, logging.INFO, "mcp tool call", tool=name, ok=False, code=err.code)

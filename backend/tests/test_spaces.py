@@ -35,8 +35,7 @@ def test_invite_existing_user_and_editor_permissions(client, owner):
     assert bob.patch(f"/api/spaces/{sid}", {"name": "Stats (Bob)"})[0] == 200
     assert bob.post(f"/api/spaces/{sid}/boards", {"name": "Week 2"})[0] == 200
     assert bob.patch(f"/api/boards/{bid}", {"locked": True})[0] == 200
-    # ... but cannot delete or manage roles
-    assert bob.delete(f"/api/boards/{bid}")[0] == 403
+    # ... but cannot delete the workspace, invite/demote/remove owners
     assert bob.delete(f"/api/spaces/{sid}")[0] == 403
     assert bob.post(f"/api/spaces/{sid}/members", {"email": "x@uni.example", "role": "owner"})[0] == 403
     assert bob.patch(f"/api/spaces/{sid}/members/{owner['user']['user_id']}", {"role": "editor"})[0] == 403
@@ -45,6 +44,17 @@ def test_invite_existing_user_and_editor_permissions(client, owner):
     assert bob.post(f"/api/spaces/{sid}/members", {"email": "carol@uni.example"})[1]["status"] == "invited"
     assert bob.delete(f"/api/spaces/{sid}/members/{bob_user['user_id']}")[0] == 200
     assert bob.get(f"/api/spaces/{sid}")[0] == 404
+
+
+def test_editor_can_delete_board_and_remove_editors(client, owner):
+    sid, bid = owner["space_id"], owner["board_id"]
+    bob, carol = Client(), Client()
+    register(bob, email="bob@uni.example", name="Bob")
+    carol_user = register(carol, email="carol@uni.example", name="Carol")
+    client.post(f"/api/spaces/{sid}/members", {"email": "bob@uni.example"})
+    client.post(f"/api/spaces/{sid}/members", {"email": "carol@uni.example"})
+    assert bob.delete(f"/api/spaces/{sid}/members/{carol_user['user_id']}")[0] == 200
+    assert bob.delete(f"/api/boards/{bid}")[0] == 200
 
 
 def test_pending_invite_applied_on_registration(client, owner):

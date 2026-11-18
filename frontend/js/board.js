@@ -1,4 +1,4 @@
-// Public board page: slides with likes and comments. Staff (space members) also get a settings side panel (⚙).
+// Public board page: slides with likes and comments. Staff (workspace members) also get a settings side panel (⚙).
 import { api, session, storage, el, toast, showError, busy, timeAgo, ApiError, BACKGROUNDS, backgroundPicker } from "./api.js";
 
 const boardId = new URLSearchParams(location.search).get("b");
@@ -34,7 +34,7 @@ function likeButton(item, onToggle) {
 }
 
 function commentNode(slide, c) {
-  const canDelete = c.mine || state.my_role === "owner";
+  const canDelete = c.mine || !!state.my_role; // author or any workspace member
   return el("div", { class: "comment" },
     el("div", { class: `who ${c.is_staff ? "staff" : ""}` }, c.author_name, c.is_staff ? " · staff" : ""),
     el("div", { class: "text" }, c.text),
@@ -97,7 +97,7 @@ function slideNode(slide, index, total) {
   const manage = staff ? [
     el("button", { class: "ghost sm", title: "Move up", disabled: index === 0, onclick: () => move(index, -1) }, "↑"),
     el("button", { class: "ghost sm", title: "Move down", disabled: index === total - 1, onclick: () => move(index, 1) }, "↓"),
-    state.my_role === "owner" && el("button", { class: "ghost sm danger", title: "Delete slide", onclick: async () => {
+    el("button", { class: "ghost sm danger", title: "Delete slide", onclick: async () => {
       if (!confirm(`Delete slide ${index + 1} and its comments?`)) return;
       await api("DELETE", `/api/boards/${boardId}/slides/${slide.slide_id}`).catch(showError); refresh(true);
     } }, "🗑"),
@@ -183,7 +183,7 @@ function renderPanel() {
 
   const fileInput = el("input", { type: "file", multiple: true, accept: "application/pdf,image/*", class: "hidden" });
   const mode = el("select", {}, el("option", { value: "append" }, "Add after existing slides"),
-    role === "owner" && el("option", { value: "replace" }, "Replace all slides (old ones are archived)"));
+    el("option", { value: "replace" }, "Replace all slides (old ones are archived)"));
   const status = el("div", { class: "muted small", id: "upload-status" });
   const uploadBtn = el("button", { class: "primary block", disabled: uploading, onclick: () => fileInput.click() }, "⬆ Upload PDF / images");
   fileInput.addEventListener("change", () => busy(uploadBtn, async () => {
@@ -207,7 +207,7 @@ function renderPanel() {
     const { board } = await api("PATCH", `/api/boards/${boardId}`, { background: bg });
     state.board = board;
   });
-  const clearBtn = role === "owner" && el("button", { class: "danger block", onclick: () => busy(clearBtn, async () => {
+  const clearBtn = el("button", { class: "danger block", onclick: () => busy(clearBtn, async () => {
     if (!confirm("Remove ALL slides, comments and likes from this board? A PDF of the current state is archived first.")) return;
     await api("POST", `/api/boards/${boardId}/clear`, { archive: true }); toast("Board cleared"); await refresh(true);
   }) }, "Clear board…");
@@ -221,7 +221,7 @@ function renderPanel() {
     section("Background", picker),
     section("Board", renameBtn),
     section("Archive", el("div", { id: "archive-list", class: "stack" })),
-    role === "owner" && section("Danger zone", clearBtn));
+    section("Danger zone", clearBtn));
   if (wasOpen) loadArchives();
 }
 
@@ -231,7 +231,7 @@ function openUploadFromLink(replace = false) {
     if (!session.token) {
       location.href = `./?next=${encodeURIComponent(`board.html${location.search}${location.hash}`)}`;
     } else {
-      toast("Only members of this board's space can upload.", "error");
+      toast("Only members of this board's workspace can upload.", "error");
     }
     return;
   }

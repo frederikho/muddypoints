@@ -240,3 +240,11 @@ button.block { width: 100%; justify-content: center; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-size: .9em; }
 @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(79,70,229,.5); } 50% { box-shadow: 0 0 0 8px rgba(79,70,229,0); } }
 .pulse { animation: pulse 1.4s ease-in-out 3; }
+
+/* --- footer & dialog --- */
+.site-footer { text-align: center; padding: 8px 16px 28px; font-size: .85rem; }
+.site-footer a { color: var(--muted); }
+.site-footer a:hover { color: var(--accent); }
+.dialog-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.dialog { width: min(520px, 100%); max-height: 90vh; overflow-y: auto; }
+.hp { position: absolute !important; left: -9999px !important; width: 1px; height: 1px; opacity: 0; }

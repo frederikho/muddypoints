@@ -2,7 +2,7 @@
 import logging
 
 from . import boards, export, media
-from .http import ApiError, forbidden
+from .http import ApiError
 from .log import get_logger, log_event
 from .util import new_id, safe_filename
 
@@ -30,9 +30,7 @@ def prepare(user: dict, board_id: str, files) -> list[dict]:
 def _check_mode(user: dict, board_id: str, mode) -> str:
     if mode not in MODES:
         raise ApiError(400, "invalid_input", "'mode' must be 'append' or 'replace'")
-    _, role = boards.require_board(user, board_id, "editor")
-    if mode == "replace" and role != "owner":
-        raise forbidden("Only owners can replace (delete) existing slides; use mode 'append'")
+    boards.require_board(user, board_id, "editor")
     return mode
 
 

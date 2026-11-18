@@ -1,7 +1,7 @@
-"""Spaces, memberships and the two-role permission model.
+"""Workspaces (called "spaces" in code/DB), memberships and the two-role permission model.
 
-owner  — can do everything (incl. deleting spaces/boards/slides/comments, managing members)
-editor — everything except deleting things and managing roles/removing members
+owner  — can do everything
+editor — everything except deleting the workspace, changing roles, inviting owners and removing owners
 """
 import logging
 
@@ -36,7 +36,7 @@ def require_space(user: dict, space_id: str, min_role: str = "editor") -> tuple[
     if not space or not role:
         raise not_found("Space")
     if RANK[role] < RANK[min_role]:
-        raise forbidden(f"Only space {min_role}s can do this")
+        raise forbidden(f"Only workspace {min_role}s can do this")
     return space, role
 
 
@@ -169,7 +169,7 @@ def accept_pending_invites(user: dict) -> None:
 
 
 def revoke_invite(user: dict, space_id: str, email: str) -> None:
-    require_space(user, space_id, "owner")
+    require_space(user, space_id, "editor")
     if not db.delete(f"SPACE#{space_id}", f"INVITE#{normalize_email(email)}", if_exists=True):
         raise not_found("Invite")
 
@@ -185,19 +185,21 @@ def set_role(user: dict, space_id: str, member_id: str, role) -> None:
     if not member:
         raise not_found("Member")
     if member["role"] == "owner" and role != "owner" and _owner_count(space_id) <= 1:
-        raise ApiError(409, "last_owner", "A space needs at least one owner")
+        raise ApiError(409, "last_owner", "A workspace needs at least one owner")
     db.update(f"SPACE#{space_id}", f"MEMBER#{member_id}", {"role": role})
     log_event(logger, logging.INFO, "member role changed", space_id=space_id, member_id=member_id, role=role)
 
 
 def remove_member(user: dict, space_id: str, member_id: str) -> None:
-    """Owners can remove anyone; every member can remove themselves (leave)."""
+    """Owners can remove anyone; editors can remove editors (not owners); everyone can leave."""
     leaving = member_id == user["user_id"]
-    require_space(user, space_id, "editor" if leaving else "owner")
+    _, my_role = require_space(user, space_id, "editor")
     member = db.get(f"SPACE#{space_id}", f"MEMBER#{member_id}")
     if not member:
         raise not_found("Member")
+    if member["role"] == "owner" and my_role != "owner" and not leaving:
+        raise forbidden("Only owners can remove owners")
     if member["role"] == "owner" and _owner_count(space_id) <= 1:
-        raise ApiError(409, "last_owner", "A space needs at least one owner")
+        raise ApiError(409, "last_owner", "A workspace needs at least one owner")
     db.delete(f"SPACE#{space_id}", f"MEMBER#{member_id}")
     log_event(logger, logging.INFO, "member removed", space_id=space_id, member_id=member_id)

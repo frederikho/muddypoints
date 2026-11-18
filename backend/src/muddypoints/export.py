@@ -106,7 +106,7 @@ def list_archives(user: dict, board_id: str) -> list[dict]:
 
 
 def clear_board(user: dict, board_id: str, archive: bool = True) -> dict:
-    boards.require_board(user, board_id, "owner")
+    boards.require_board(user, board_id, "editor")
     if not isinstance(archive, bool):
         raise ApiError(400, "invalid_input", "'archive' must be true or false")
     result = {"archive": archive_if_needed(board_id) if archive else None}

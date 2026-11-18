@@ -106,7 +106,7 @@ def purge_board(board_id: str) -> None:
 
 
 def delete_board(user: dict, board_id: str) -> None:
-    require_board(user, board_id, "owner")
+    require_board(user, board_id, "editor")
     purge_board(board_id)
     log_event(logger, logging.INFO, "board deleted", board_id=board_id)
 
@@ -188,19 +188,19 @@ def _delete_likes_for(board_id: str, target_ids: set[str]) -> None:
 
 
 def delete_comment(board_id: str, comment_id: str, viewer: Viewer | None) -> None:
-    """Space owners can delete any comment; authors (anonymous or not) can delete their own."""
+    """Workspace members (owners and editors) can delete any comment; authors can delete their own."""
     board = get_board_meta(board_id)
     comment = db.get(f"BOARD#{board_id}", f"COMMENT#{comment_id}")
     if not comment:
         raise not_found("Comment")
     is_author = viewer is not None and viewer.key == comment["author_key"]
-    is_owner = bool(viewer and viewer.user and spaces.role_of(board["space_id"], viewer.user) == "owner")
+    is_owner = bool(viewer and viewer.user and spaces.role_of(board["space_id"], viewer.user))  # any staff member
     if not (is_author or is_owner):
-        raise forbidden("Only the author or a space owner can delete this comment")
+        raise forbidden("Only the author or a workspace member can delete this comment")
     db.delete(f"BOARD#{board_id}", f"COMMENT#{comment_id}")
     _delete_likes_for(board_id, {comment_id})
     log_event(logger, logging.INFO, "comment deleted", board_id=board_id, comment_id=comment_id,
-              by="author" if is_author else "owner")
+              by="author" if is_author else "staff")
 
 
 # --- likes ----------------------------------------------------------------------------------
@@ -270,7 +270,7 @@ def _remove_slides(board_id: str, slide_ids: set[str]) -> None:
 
 
 def delete_slide(user: dict, board_id: str, slide_id: str) -> None:
-    require_board(user, board_id, "owner")
+    require_board(user, board_id, "editor")
     if not db.get(f"BOARD#{board_id}", f"SLIDE#{slide_id}"):
         raise not_found("Slide")
     _remove_slides(board_id, {slide_id})

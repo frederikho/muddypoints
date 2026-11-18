@@ -97,6 +97,15 @@ def increment(pk: str, sk: str, field: str, by: int) -> None:
             raise
 
 
+def bump_counter(pk: str, sk: str, ttl: int) -> int:
+    """Atomically increment a counter item (created if missing) and return the new value."""
+    resp = aws.table().update_item(
+        Key={"PK": pk, "SK": sk}, UpdateExpression="ADD #n :one SET #t = :ttl",
+        ExpressionAttributeNames={"#n": "count", "#t": "ttl"},
+        ExpressionAttributeValues={":one": 1, ":ttl": ttl}, ReturnValues="UPDATED_NEW")
+    return int(resp["Attributes"]["count"])
+
+
 def _paginate(**kwargs) -> list[dict]:
     items, start = [], None
     while True:

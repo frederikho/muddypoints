@@ -33,6 +33,11 @@ class Settings:
         return _env("MAIL_FROM")
 
     @property
+    def feedback_email(self) -> str:
+        """Private address that receives the feedback form (set via the FEEDBACK_EMAIL GitHub secret)."""
+        return _env("FEEDBACK_EMAIL")
+
+    @property
     def mail_from_name(self) -> str:
         return _env("MAIL_FROM_NAME", "Muddy Points")
 

@@ -36,7 +36,7 @@ def test_initialize_and_list(mcp):
     assert s == 202
     s, d = mcp("tools/list")
     names = {t["name"] for t in d["result"]["tools"]}
-    assert {"list_spaces", "create_board", "export_board_pdf", "replace_board_material", "get_logs"} <= names
+    assert {"list_workspaces", "create_board", "export_board_pdf", "replace_board_material", "get_logs"} <= names
     for t in d["result"]["tools"]:
         assert t["inputSchema"]["type"] == "object" and t["description"]
     assert mcp("ping")[1]["result"] == {}
@@ -55,10 +55,10 @@ def test_auth(mcp, client):
 
 def test_tools_end_to_end(mcp, owner, monkeypatch):
     who, err = mcp.call("whoami")
-    assert not err and who["user"]["name"] == "Alice" and who["spaces"][0]["space_id"] == owner["space_id"]
-    board, err = mcp.call("create_board", space_id=owner["space_id"], name="Week 2")
+    assert not err and who["user"]["name"] == "Alice" and who["workspaces"][0]["workspace_id"] == owner["space_id"]
+    board, err = mcp.call("create_board", workspace_id=owner["space_id"], name="Week 2")
     assert not err and board["url"].endswith(board["board_id"])
-    boards, _ = mcp.call("list_boards", space_id=owner["space_id"])
+    boards, _ = mcp.call("list_boards", workspace_id=owner["space_id"])
     assert [b["name"] for b in boards] == ["Week 1", "Week 2"]
 
     pdf = make_pdf(2)
@@ -93,21 +93,25 @@ def test_tools_end_to_end(mcp, owner, monkeypatch):
 def test_tool_errors_are_reported_not_raised(mcp, owner):
     text, err = mcp.call("delete_board", board_id="doesnotexist")
     assert err and "not_found" in text
-    text, err = mcp.call("rename_space", name="x")
+    text, err = mcp.call("rename_workspace", name="x")
     assert err and "missing argument" in text
     s, d = mcp("tools/call", {"name": "nope", "arguments": {}})
     assert d["error"]["code"] == -32602
 
 
-def test_editor_cannot_delete_via_mcp(mcp, client, owner):
+def test_editor_permissions_via_mcp(mcp, client, owner):
     bob = Client()
     register(bob, email="bob@uni.example", name="Bob")
     client.post(f"/api/spaces/{owner['space_id']}/members", {"email": "bob@uni.example"})
     _, key = bob.post("/api/me/api-keys", {"label": "Claude"})
     s, d = Client().request("POST", f"/mcp/{key['key']}", token=None, raw=json.dumps(
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-         "params": {"name": "delete_board", "arguments": {"board_id": owner["board_id"]}}}))
+         "params": {"name": "delete_workspace", "arguments": {"workspace_id": owner["space_id"]}}}))
     assert d["result"]["isError"] and "forbidden" in d["result"]["content"][0]["text"]
+    s, d = Client().request("POST", f"/mcp/{key['key']}", token=None, raw=json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+         "params": {"name": "delete_board", "arguments": {"board_id": owner["board_id"]}}}))
+    assert not d["result"]["isError"]  # editors may delete boards
 
 
 def test_get_logs_permissions(mcp):
@@ -162,7 +166,7 @@ def test_get_upload_link(mcp, client, owner):
     assert not err and res["upload_link"].endswith(f"board.html?b={owner['board_id']}#upload") and res["mode"] == "append"
     res, err = mcp.call("get_upload_link", board_id=owner["board_id"], replace=True)
     assert not err and res["upload_link"].endswith("#upload-replace") and "archived" in res["tell_the_user"]
-    # editors may only get an append link
+    # editors may get both link kinds
     bob = Client()
     register(bob, email="bob@uni.example", name="Bob")
     client.post(f"/api/spaces/{owner['space_id']}/members", {"email": "bob@uni.example"})
@@ -170,4 +174,4 @@ def test_get_upload_link(mcp, client, owner):
     call = lambda args: Client().request("POST", f"/mcp/{key['key']}", token=None, raw=json.dumps(
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_upload_link", "arguments": args}}))[1]
     assert not call({"board_id": owner["board_id"]})["result"]["isError"]
-    assert call({"board_id": owner["board_id"], "replace": True})["result"]["isError"]
+    assert not call({"board_id": owner["board_id"], "replace": True})["result"]["isError"]

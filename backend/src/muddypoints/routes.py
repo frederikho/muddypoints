@@ -5,7 +5,7 @@ Anonymous students send `X-Anon-Token: <token from POST /api/identity>`.
 """
 import logging
 
-from . import applogs, boards, export, identity, spaces, uploads, users
+from . import applogs, boards, export, feedback, identity, spaces, uploads, users
 from .http import ApiError, Request, Router
 from .log import bind, get_logger, log_event
 
@@ -74,6 +74,11 @@ def health(req):
 @router.route("POST", "/api/identity")
 def new_identity(req):
     return identity.new_identity()
+
+
+@router.route("POST", "/api/feedback")
+def send_feedback(req):
+    return feedback.submit(body(req), req.source_ip, current_user(req))
 
 
 @router.route("POST", "/api/client-log")
