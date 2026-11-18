@@ -15,29 +15,30 @@ function renderNav() {
 
 // --- auth screens ----------------------------------------------------------------------------
 function authView(tab = "login") {
-  const msg = el("div");
+  // one message area per form (a DOM node can only live in one place)
+  const msgs = { login: el("div", { class: "form-msg" }), register: el("div", { class: "form-msg" }), forgot: el("div", { class: "form-msg" }) };
   const field = (id, label, type = "text", extra = {}) =>
     el("div", {}, el("label", { for: id }, label), el("input", { id, type, required: true, ...extra }));
   const forms = {
     login: el("form", { class: "stack" },
       field("email", "Email", "email", { autocomplete: "email" }),
       field("password", "Password", "password", { autocomplete: "current-password" }),
-      msg, el("button", { class: "primary", type: "submit" }, "Log in"),
+      msgs.login, el("button", { class: "primary", type: "submit" }, "Log in"),
       el("div", { class: "small" }, el("a", { href: "#", onclick: (e) => { e.preventDefault(); show("forgot"); } }, "Forgot your password?"))),
     register: el("form", { class: "stack" },
       field("name", "Your name (shown on your comments)", "text", { autocomplete: "name", maxlength: 80 }),
       field("email", "Email", "email", { autocomplete: "email" }),
       field("password", "Password (min. 8 characters)", "password", { autocomplete: "new-password", minlength: 8 }),
-      msg, el("button", { class: "primary", type: "submit" }, "Create account")),
+      msgs.register, el("button", { class: "primary", type: "submit" }, "Create account")),
     forgot: el("form", { class: "stack" },
       el("p", { class: "muted small" }, "We'll email you a link to choose a new password."),
       field("email", "Email", "email", { autocomplete: "email" }),
-      msg, el("button", { class: "primary", type: "submit" }, "Send reset link")),
+      msgs.forgot, el("button", { class: "primary", type: "submit" }, "Send reset link")),
   };
   const tabs = el("div", { class: "tabs" });
   const holder = el("div");
   function show(name) {
-    msg.replaceChildren();
+    Object.values(msgs).forEach((m) => m.replaceChildren());
     tabs.replaceChildren(
       ...[["login", "Log in"], ["register", "Register"]].map(([k, label]) =>
         el("button", { class: k === name ? "active" : "", type: "button", onclick: () => show(k) }, label)));
@@ -52,7 +53,7 @@ function authView(tab = "login") {
       try {
         if (name === "forgot") {
           await api("POST", "/api/auth/forgot", { email: v("email") });
-          msg.replaceChildren(el("div", { class: "alert ok" }, "If an account exists for this email, a reset link is on its way."));
+          msgs.forgot.replaceChildren(el("div", { class: "alert ok" }, "If an account exists for this email, a reset link is on its way. Check your spam folder, too."));
         } else {
           const body = name === "login" ? { email: v("email"), password: v("password") }
             : { name: v("name"), email: v("email"), password: v("password") };
@@ -63,7 +64,9 @@ function authView(tab = "login") {
           route();
         }
       } catch (err) {
-        msg.replaceChildren(el("div", { class: "alert" }, err.message));
+        msgs[name].replaceChildren(el("div", { class: "alert" }, err.message,
+          err.code === "email_taken" ? el("span", {}, " ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); show("login"); } }, "Log in instead"),
+            " or ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); show("forgot"); } }, "reset your password"), ".") : ""));
       } finally { btn.disabled = false; }
     });
   }
