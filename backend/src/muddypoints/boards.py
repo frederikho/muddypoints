@@ -138,14 +138,9 @@ def view(board_id: str, viewer: Viewer | None) -> dict:
     data = load(board_id)
     my_likes = {l["target"] for l in data["likes"] if viewer and l["viewer"] == viewer.key}
     role = spaces.role_of(data["meta"]["space_id"], viewer.user) if viewer and viewer.user else None
-    by_slide: dict[str, list] = {}
-    for c in data["comments"]:
-        by_slide.setdefault(c["slide_id"], []).append({
-            "comment_id": c["comment_id"], "text": c["text"], "author_name": c["author_name"],
-            "is_staff": bool(c.get("is_staff")), "created_at": c["created_at"], "likes": c.get("likes", 0),
-            "liked": c["comment_id"] in my_likes,
-            "mine": bool(viewer and viewer.key == c["author_key"]),
-        })
+    by_slide = thread_comments(data["comments"], include_hidden=bool(role),
+                               decorate=lambda c: {"liked": c["comment_id"] in my_likes,
+                                                   "mine": bool(viewer and viewer.key == c["author_key"])})
     slides = [{
         "slide_id": s["slide_id"], "position": s["position"], "image_url": media.presigned_get(s["key"]),
         "width": s.get("width"), "height": s.get("height"), "source": s.get("source"),
@@ -162,11 +157,49 @@ def view(board_id: str, viewer: Viewer | None) -> dict:
 
 # --- comments -------------------------------------------------------------------------------
 
-def add_comment(board_id: str, slide_id, text, viewer: Viewer) -> dict:
+def public_comment(c: dict) -> dict:
+    return {"comment_id": c["comment_id"], "slide_id": c["slide_id"], "parent_id": c.get("parent_id"),
+            "text": c["text"], "author_name": c["author_name"], "is_staff": bool(c.get("is_staff")),
+            "created_at": c["created_at"], "likes": c.get("likes", 0), "answered": bool(c.get("answered")),
+            "pinned": bool(c.get("pinned")), "hidden": bool(c.get("hidden"))}
+
+
+def thread_comments(comments: list[dict], include_hidden: bool, decorate=None) -> dict[str, list]:
+    """slide_id -> top-level comments (pinned first, then oldest first), each with 'replies' (oldest first).
+    Hidden comments (and replies to hidden comments) are left out unless include_hidden (staff)."""
+    tops: dict[str, dict] = {}
+    replies: dict[str, list] = {}
+    for c in comments:
+        if c.get("hidden") and not include_hidden:
+            continue
+        item = {**public_comment(c), **(decorate(c) if decorate else {})}
+        if c.get("parent_id"):
+            replies.setdefault(c["parent_id"], []).append(item)
+        else:
+            tops[c["comment_id"]] = item
+    by_slide: dict[str, list] = {}
+    for cid, item in tops.items():
+        item["replies"] = replies.get(cid, [])
+        by_slide.setdefault(item["slide_id"], []).append(item)
+    for items in by_slide.values():
+        items.sort(key=lambda x: (not x["pinned"], x["created_at"], x["comment_id"]))
+    return by_slide
+
+
+def add_comment(board_id: str, slide_id, text, viewer: Viewer, parent_id=None) -> dict:
+    """New comment, or a reply (parent_id; one level deep). A staff reply marks the question as answered."""
     board = get_board_meta(board_id)
     is_staff = bool(viewer.user and spaces.role_of(board["space_id"], viewer.user))
     if board.get("locked") and not is_staff:
         raise ApiError(423, "board_locked", "Comments are closed for this board")
+    parent = None
+    if parent_id:
+        parent = db.get(f"BOARD#{board_id}", f"COMMENT#{parent_id}") if isinstance(parent_id, str) else None
+        if not parent or (parent.get("hidden") and not is_staff):
+            raise not_found("Comment")
+        if parent.get("parent_id"):
+            raise ApiError(400, "invalid_input", "Replies can only be added to top-level comments")
+        slide_id = parent["slide_id"]
     if not isinstance(slide_id, str) or not db.get(f"BOARD#{board_id}", f"SLIDE#{slide_id}"):
         raise not_found("Slide")
     text = (text or "").strip() if isinstance(text, str) else ""
@@ -178,20 +211,39 @@ def add_comment(board_id: str, slide_id, text, viewer: Viewer) -> dict:
     item = {"PK": f"BOARD#{board_id}", "SK": f"COMMENT#{comment_id}", "comment_id": comment_id,
             "slide_id": slide_id, "text": text, "author_name": viewer.name, "author_key": viewer.key,
             "is_staff": is_staff, "likes": 0, "created_at": now_iso()}
+    if parent:
+        item["parent_id"] = parent["comment_id"]
     db.put(item)
+    if parent and is_staff and not parent.get("answered"):
+        db.update(f"BOARD#{board_id}", f"COMMENT#{parent['comment_id']}", {"answered": True})
     db.update(f"BOARD#{board_id}", "META", {"last_activity_at": item["created_at"], "last_activity_by": viewer.name})
     log_event(logger, logging.INFO, "comment added", board_id=board_id, slide_id=slide_id, comment_id=comment_id)
-    return {"comment_id": comment_id, "slide_id": slide_id, "text": text, "author_name": viewer.name,
-            "is_staff": is_staff, "created_at": item["created_at"], "likes": 0, "liked": False, "mine": True}
+    return {**public_comment(item), "liked": False, "mine": True, "replies": []}
+
+
+def set_comment_status(user: dict, board_id: str, comment_id: str, answered=None, pinned=None, hidden=None) -> dict:
+    """Staff only: mark answered (✓ visible to students), pin (top of the slide), hide (invisible to students)."""
+    require_board(user, board_id, "editor")
+    comment = db.get(f"BOARD#{board_id}", f"COMMENT#{comment_id}")
+    if not comment:
+        raise not_found("Comment")
+    fields = {}
+    for key, value in (("answered", answered), ("pinned", pinned), ("hidden", hidden)):
+        if value is not None:
+            if not isinstance(value, bool):
+                raise ApiError(400, "invalid_input", f"'{key}' must be true or false")
+            fields[key] = value
+    if not fields:
+        raise ApiError(400, "invalid_input", "Nothing to change (answered, pinned, hidden)")
+    log_event(logger, logging.INFO, "comment status", board_id=board_id, comment_id=comment_id, **fields)
+    return public_comment(db.update(f"BOARD#{board_id}", f"COMMENT#{comment_id}", fields))
 
 
 def list_comments(user: dict, board_id: str) -> list[dict]:
     require_board(user, board_id, "editor")
     data = load(board_id)
     positions = {s["slide_id"]: idx + 1 for idx, s in enumerate(data["slides"])}
-    return [{"comment_id": c["comment_id"], "slide_id": c["slide_id"], "slide_number": positions.get(c["slide_id"]),
-             "author_name": c["author_name"], "is_staff": bool(c.get("is_staff")), "text": c["text"],
-             "likes": c.get("likes", 0), "created_at": c["created_at"]} for c in data["comments"]]
+    return [{**public_comment(c), "slide_number": positions.get(c["slide_id"])} for c in data["comments"]]
 
 
 def _delete_likes_for(board_id: str, target_ids: set[str]) -> None:
@@ -209,8 +261,9 @@ def delete_comment(board_id: str, comment_id: str, viewer: Viewer | None) -> Non
     is_owner = bool(viewer and viewer.user and spaces.role_of(board["space_id"], viewer.user))  # any staff member
     if not (is_author or is_owner):
         raise forbidden("Only the author or a workspace member can delete this comment")
-    db.delete(f"BOARD#{board_id}", f"COMMENT#{comment_id}")
-    _delete_likes_for(board_id, {comment_id})
+    reply_ids = {c["comment_id"] for c in db.query(f"BOARD#{board_id}", "COMMENT#") if c.get("parent_id") == comment_id}
+    db.batch_delete([(f"BOARD#{board_id}", f"COMMENT#{cid}") for cid in reply_ids | {comment_id}])
+    _delete_likes_for(board_id, reply_ids | {comment_id})
     log_event(logger, logging.INFO, "comment deleted", board_id=board_id, comment_id=comment_id,
               by="author" if is_author else "staff")
 

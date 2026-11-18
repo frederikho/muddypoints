@@ -172,3 +172,50 @@ def test_board_background(client, owner):
     s, d = client.post(f"/api/spaces/{sid}/boards", {"name": "W2", "background": "chalkboard"})
     assert d["board"]["background"] == "chalkboard"
     assert client.post(f"/api/spaces/{sid}/boards", {"name": "W3", "background": "nope"})[0] == 400
+
+
+def test_replies_status_and_visibility(client, owner):
+    bid = owner["board_id"]
+    upload(client, bid, [("w1.pdf", "application/pdf", make_pdf(1))])
+    slide = Client().get(f"/api/boards/{bid}")[1]["slides"][0]["slide_id"]
+    student, other = anon_client(), anon_client()
+    q1 = student.post(f"/api/boards/{bid}/comments", {"slide_id": slide, "text": "What is a p-value?"})[1]["comment"]
+    q2 = student.post(f"/api/boards/{bid}/comments", {"slide_id": slide, "text": "Typo on slide?"})[1]["comment"]
+    # staff reply -> threaded, question marked answered
+    s, d = client.post(f"/api/boards/{bid}/comments", {"text": "The probability of data this extreme…", "parent_id": q1["comment_id"]})
+    assert s == 200 and d["comment"]["parent_id"] == q1["comment_id"] and d["comment"]["is_staff"]
+    # students may reply too, but only one level deep
+    r = other.post(f"/api/boards/{bid}/comments", {"text": "Same question!", "parent_id": q1["comment_id"]})[1]["comment"]
+    assert other.post(f"/api/boards/{bid}/comments", {"text": "x", "parent_id": r["comment_id"]})[0] == 400
+    # pin q2, hide it later
+    assert client.patch(f"/api/boards/{bid}/comments/{q2['comment_id']}", {"pinned": True})[1]["comment"]["pinned"]
+    assert student.patch(f"/api/boards/{bid}/comments/{q2['comment_id']}", {"pinned": False})[0] == 401
+    view = other.get(f"/api/boards/{bid}")[1]["slides"][0]["comments"]
+    assert [c["text"] for c in view] == ["Typo on slide?", "What is a p-value?"]  # pinned first
+    assert view[1]["answered"] and [x["text"] for x in view[1]["replies"]] == ["The probability of data this extreme…", "Same question!"]
+    client.patch(f"/api/boards/{bid}/comments/{q2['comment_id']}", {"hidden": True})
+    assert [c["text"] for c in other.get(f"/api/boards/{bid}")[1]["slides"][0]["comments"]] == ["What is a p-value?"]
+    staff_view = client.get(f"/api/boards/{bid}")[1]["slides"][0]["comments"]
+    assert any(c["hidden"] for c in staff_view)
+    assert other.post(f"/api/boards/{bid}/comments", {"text": "x", "parent_id": q2["comment_id"]})[0] == 404
+    # deleting a question deletes its replies
+    assert client.delete(f"/api/boards/{bid}/comments/{q1['comment_id']}")[0] == 200
+    remaining = client.get(f"/api/boards/{bid}")[1]["slides"][0]["comments"]
+    assert [c["comment_id"] for c in remaining] == [q2["comment_id"]]
+
+
+def test_archived_comments_as_data(client, owner):
+    from muddypoints import export, users
+    bid = owner["board_id"]
+    upload(client, bid, [("Lecture_1.pdf", "application/pdf", make_pdf(1))])
+    slide = Client().get(f"/api/boards/{bid}")[1]["slides"][0]["slide_id"]
+    q = anon_client().post(f"/api/boards/{bid}/comments", {"slide_id": slide, "text": "Unclear!"})[1]["comment"]
+    client.post(f"/api/boards/{bid}/comments", {"text": "Answer", "parent_id": q["comment_id"]})
+    upload(client, bid, [("Lecture_2.pdf", "application/pdf", make_pdf(2))], mode="replace")
+    user = users.get_user(owner["user"]["user_id"])
+    data = export.archived_comments(user, bid)
+    assert data["total_archives"] == 1 and data["archives"][0]["material"] == ["Lecture 1"]
+    c = data["archives"][0]["slides"][0]["comments"][0]
+    assert c["text"] == "Unclear!" and c["answered"] and c["replies"][0]["text"] == "Answer"
+    assert data["current"]["material"] == ["Lecture 2"] and len(data["current"]["slides"]) == 2
+    pdf, _ = export.build_pdf(bid)  # export renders replies without crashing

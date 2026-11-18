@@ -7,9 +7,10 @@ import time
 
 import pymupdf
 
-from . import boards, media
+from . import boards, db, media
 from .http import ApiError
 from .log import get_logger, log_event
+from .util import now_iso, sortable_id
 
 logger = get_logger(__name__)
 PAGE = pymupdf.paper_rect("a4")
@@ -20,6 +21,7 @@ h1 { font-size: 18pt; margin: 0 0 4pt 0; }
 h2 { font-size: 13pt; margin: 14pt 0 4pt 0; }
 .meta { color: #666; font-size: 9pt; }
 .comment { margin: 3pt 0 3pt 0; }
+.reply { margin-left: 18pt; }
 .author { font-weight: bold; }
 .staff { color: #1d4ed8; }
 """
@@ -33,9 +35,7 @@ def _filename(name: str) -> str:
 def build_pdf(board_id: str, include_uncommented: bool = True) -> tuple[bytes, dict]:
     data = boards.load(board_id)
     meta, slides, comments = data["meta"], data["slides"], data["comments"]
-    by_slide: dict[str, list] = {}
-    for c in comments:
-        by_slide.setdefault(c["slide_id"], []).append(c)
+    by_slide = boards.thread_comments(comments, include_hidden=True)  # staff export: everything, marked
 
     archive = pymupdf.Archive()
     width = PAGE.width - 2 * MARGIN
@@ -56,12 +56,18 @@ def build_pdf(board_id: str, include_uncommented: bool = True) -> tuple[bytes, d
         parts.append(f"<img src='{name}' width='{w:.0f}' height='{h:.0f}'/>")
         if not slide_comments:
             parts.append("<p class='meta'>No comments.</p>")
-        for c in slide_comments:
+        def render(c: dict, reply: bool = False) -> str:
             cls = "author staff" if c.get("is_staff") else "author"
             likes = f" · {c.get('likes', 0)} likes" if c.get("likes") else ""
+            flags = "".join(f" · {f}" for f, on in (("✓ answered", c.get("answered")), ("pinned", c.get("pinned")),
+                                                     ("[hidden]", c.get("hidden"))) if on)
             text = html.escape(c["text"]).replace("\n", "<br/>")
-            parts.append(f"<p class='comment'><span class='{cls}'>{html.escape(c['author_name'])}</span> "
-                         f"<span class='meta'>{c['created_at'][:16].replace('T', ' ')}{likes}</span><br/>{text}</p>")
+            return (f"<p class='comment{' reply' if reply else ''}'>{'↳ ' if reply else ''}"
+                    f"<span class='{cls}'>{html.escape(c['author_name'])}</span> "
+                    f"<span class='meta'>{c['created_at'][:16].replace('T', ' ')}{likes}{flags}</span><br/>{text}</p>")
+        for c in slide_comments:
+            parts.append(render(c))
+            parts.extend(render(r, reply=True) for r in c.get("replies", []))
 
     story = pymupdf.Story("<body>" + "".join(parts) + "</body>", user_css=CSS, archive=archive)
     buf = io.BytesIO()
@@ -95,12 +101,56 @@ def archive_if_needed(board_id: str) -> dict | None:
     data = boards.load(board_id)
     if not data["slides"] or not data["comments"]:
         return None
-    return _store(board_id, "archive")
+    result = _store(board_id, "archive")
+    _store_comment_data(board_id, data, result["key"])
+    return result
+
+
+def comment_snapshot(data: dict) -> list[dict]:
+    """Slides with their threaded comments (staff view incl. hidden) as plain data."""
+    threaded = boards.thread_comments(data["comments"], include_hidden=True)
+    return [{"slide_number": i + 1, "source": s.get("source"), "likes": s.get("likes", 0),
+             "comments": threaded.get(s["slide_id"], [])} for i, s in enumerate(data["slides"])]
+
+
+def _store_comment_data(board_id: str, data: dict, pdf_key: str) -> None:
+    """Structured copy of the archived comments (JSON in S3 + small index item) for later analysis."""
+    import json
+    history = sorted(db.query(f"BOARD#{board_id}", "HIST#"), key=lambda i: i["SK"])
+    material = [f.get("title") or f.get("name") for f in (history[-1].get("files", []) if history else [])]
+    slides = comment_snapshot(data)
+    json_key = pdf_key[:-4] + ".comments.json"
+    doc = {"board": data["meta"]["name"], "archived_at": now_iso(), "material": material, "slides": slides}
+    media.put_bytes(json_key, json.dumps(doc, ensure_ascii=False).encode(), "application/json")
+    count = sum(len(s["comments"]) + sum(len(c["replies"]) for c in s["comments"]) for s in slides)
+    db.put({"PK": f"BOARD#{board_id}", "SK": f"ARCH#{sortable_id()}", "archived_at": doc["archived_at"],
+            "material": material, "json_key": json_key, "pdf_key": pdf_key, "comment_count": count})
+
+
+def archived_comments(user: dict, board_id: str, limit: int = 5, offset: int = 0, include_current: bool = True) -> dict:
+    """Comments of earlier materials (newest first) as data, optionally plus the current ones."""
+    import json
+    board, _ = boards.require_board(user, board_id, "editor")
+    try:
+        limit, offset = max(1, min(int(limit or 5), 20)), max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        raise ApiError(400, "invalid_input", "limit and offset must be numbers")
+    index = sorted(db.query(f"BOARD#{board_id}", "ARCH#"), key=lambda i: i["SK"], reverse=True)
+    archives = [{**json.loads(media.get_bytes(i["json_key"])), "comment_count": i.get("comment_count")}
+                for i in index[offset:offset + limit]]
+    out = {"board": board["name"], "total_archives": len(index), "archives": archives,
+           "next_offset": offset + limit if offset + limit < len(index) else None}
+    if include_current and offset == 0:
+        out["current"] = {"material": [f.get("title") or f.get("name") for f in (
+            sorted(db.query(f"BOARD#{board_id}", "HIST#"), key=lambda i: i["SK"])[-1:] or [{}])[0].get("files", [])],
+            "slides": comment_snapshot(boards.load(board_id))}
+    return out
 
 
 def list_archives(user: dict, board_id: str) -> list[dict]:
     boards.require_board(user, board_id, "editor")
-    objects = sorted(media.list_keys(f"archive/{board_id}/"), key=lambda o: o["Key"], reverse=True)
+    objects = sorted((o for o in media.list_keys(f"archive/{board_id}/") if o["Key"].endswith(".pdf")),
+                     key=lambda o: o["Key"], reverse=True)
     return [{"key": o["Key"], "size_bytes": o["Size"], "created_at": o["LastModified"].isoformat(),
              "download_url": media.presigned_get(o["Key"], o["Key"].rsplit("/", 1)[-1], ttl=3600)}
             for o in objects]

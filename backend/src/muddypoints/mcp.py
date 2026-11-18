@@ -53,7 +53,12 @@ Schedules (a board = one course, one URL for the whole semester, content changes
   * Times are in the board's time zone (default Europe/Berlin); pass local times like 2026-10-20T16:00.
   * Skip holidays/no-lecture weeks found in the syllabus; one session per lecture; titles like "Lecture 3: Topic".
   * If lecture times are missing in the syllabus, ask the user instead of guessing.
-- view_file_page shows you a page of a file as an image (for scanned PDFs, diagrams, formulas)."""
+- view_file_page shows you a page of a file as an image (for scanned PDFs, diagrams, formulas).
+Comments: list_comments returns all comments incl. replies (parent_id) and status (answered/pinned/hidden).
+- reply_to_comment posts IN THE USER'S NAME (students see it as the lecturer's answer). NEVER reply on your own
+  initiative. You may offer to help and draft answers, but only post when the user explicitly asks you to answer
+  ("please answer the student by explaining X"); if you drafted the text yourself, show it and get an OK first.
+- set_comment_status: answered (✓ shown to students), pinned (top of the slide), hidden (students don't see it)."""
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -189,6 +194,22 @@ def _delete_board(user, a):
       ("board_id",), read_only=True)
 def _list_comments(user, a):
     return boards.list_comments(user, a["board_id"])
+
+
+@tool("reply_to_comment", "Post a reply under a student's comment, IN THE USER'S NAME (shown as staff). Only when the "
+      "user explicitly asked for it (see instructions). Marks the question as answered.",
+      {**BOARD, "comment_id": S, "text": S}, ("board_id", "comment_id", "text"))
+def _reply(user, a):
+    return boards.add_comment(a["board_id"], None, a.get("text"), identity.viewer_from_user(user), a["comment_id"])
+
+
+@tool("set_comment_status", "Mark a comment answered (✓ visible to students), pin it (top of its slide) or hide it "
+      "(invisible to students, still visible to staff and in exports).",
+      {**BOARD, "comment_id": S, "answered": {"type": "boolean"}, "pinned": {"type": "boolean"},
+       "hidden": {"type": "boolean"}}, ("board_id", "comment_id"))
+def _comment_status(user, a):
+    return boards.set_comment_status(user, a["board_id"], a["comment_id"], a.get("answered"), a.get("pinned"),
+                                     a.get("hidden"))
 
 
 @tool("delete_comment", "Delete a comment.", {**BOARD, "comment_id": S}, ("board_id", "comment_id"),
@@ -441,6 +462,17 @@ def _set_notifications(user, a):
       ("board_id",), read_only=True)
 def _export(user, a):
     return export.export_board(user, a["board_id"], a.get("include_uncommented", True))
+
+
+@tool("get_archived_comments", "Comments (with replies, likes, answered/pinned/hidden) of a board's EARLIER materials as "
+      "data, newest first, plus the current ones - e.g. to summarise the most-liked muddy points per lecture across "
+      "the semester. Paginate with offset. (Only material archived after this feature existed has data.)",
+      {**BOARD, "limit": {"type": "integer", "default": 5, "description": "Archives per call, max 20"},
+       "offset": {"type": "integer", "default": 0}, "include_current": {"type": "boolean", "default": True}},
+      ("board_id",), read_only=True)
+def _archived_comments(user, a):
+    return export.archived_comments(user, a["board_id"], a.get("limit", 5), a.get("offset", 0),
+                                    a.get("include_current", True))
 
 
 @tool("list_board_archives", "List the PDFs archived automatically whenever the board was cleared/replaced.", BOARD,

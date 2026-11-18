@@ -298,7 +298,15 @@ def archives(req):
 @router.route("POST", "/api/boards/{board_id}/comments")
 def add_comment(req):
     d = body(req)
-    return {"comment": boards.add_comment(p(req, "board_id"), d.get("slide_id"), d.get("text"), require_viewer(req))}
+    return {"comment": boards.add_comment(p(req, "board_id"), d.get("slide_id"), d.get("text"), require_viewer(req),
+                                          d.get("parent_id"))}
+
+
+@router.route("PATCH", "/api/boards/{board_id}/comments/{comment_id}")
+def comment_status(req):
+    d = body(req)
+    return {"comment": boards.set_comment_status(require_user(req), p(req, "board_id"), p(req, "comment_id"),
+                                                 d.get("answered"), d.get("pinned"), d.get("hidden"))}
 
 
 @router.route("DELETE", "/api/boards/{board_id}/comments/{comment_id}")
