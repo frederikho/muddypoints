@@ -44,3 +44,50 @@ def test_feedback_reports_whether_it_was_mailed(client, monkeypatch):
     assert client.post("/api/feedback", {"message": "Please add dark mode"}, token=None)[1]["mailed"] is False
     monkeypatch.setattr("muddypoints.mailer.send", lambda *a, **k: True)
     assert client.post("/api/feedback", {"message": "Please add dark mode"}, token=None)[1]["mailed"] is True
+
+
+def test_web_feedback_with_context(client, monkeypatch):
+    sent = []
+    monkeypatch.setenv("FEEDBACK_EMAIL", "maintainer@example.org")
+    monkeypatch.setattr("muddypoints.mailer.send", lambda to, subject, body, reply_to=None: sent.append(body) or True)
+    s, d = Client().post("/api/feedback", {"message": "Please add LaTeX support", "context": {
+        "role": "lecturer", "discipline": "Physics", "course_size": "100-300", "unknown": "dropped"}}, token=None)
+    assert s == 200 and "role: lecturer" in sent[0] and "discipline: Physics" in sent[0] and "unknown" not in sent[0]
+    s, d = Client().post("/api/feedback", {"message": "Another idea here", "context": {"course_size": "huge"}}, token=None)
+    assert s == 400
+
+
+def test_claude_feedback_and_superadmin_list(client, monkeypatch):
+    from test_admin import _verify
+    from muddypoints import feedback, users
+    sent = []
+    monkeypatch.setenv("FEEDBACK_EMAIL", "maintainer@example.org")
+    monkeypatch.setenv("SUPERADMIN_EMAILS", "boss@uni.example")
+    monkeypatch.setattr("muddypoints.mailer.send", lambda to, subject, body, reply_to=None: sent.append((subject, body)) or True)
+    alice = register(client, email="alice@uni.example", name="Alice")
+    _, key = client.post("/api/me/api-keys", {"label": "Claude"})
+    sent.clear()  # drop the registration's verification mail
+    import json
+    call = lambda name, args, k=key["key"]: Client().request("POST", f"/mcp/{k}", token=None, raw=json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}))[1]["result"]
+    r = call("send_feedback", {"category": "missing_feature", "summary": "Sessions should take several files",
+                               "details": "Week 9 has two lectures.", "context": {"role": "lecturer", "other_tools": ["OLAT"]}})
+    assert not r["isError"] and sent[0][0] == "[Muddy Points · Claude feedback] missing_feature: Sessions should take several files"
+    assert "via Claude" in sent[0][1] and "other_tools: OLAT" in sent[0][1]
+    assert call("send_feedback", {"category": "rant", "summary": "nope nope"})["isError"]
+    # superadmin-only list: Alice gets 'not found'
+    assert call("list_feedback", {})["isError"]
+    assert client.get("/api/admin/feedback")[0] == 404
+    boss = Client()
+    register(boss, email="boss@uni.example", name="Boss")
+    _verify(boss, "boss@uni.example")
+    s, d = boss.get("/api/admin/feedback")
+    assert s == 200 and d["feedback"][0]["source"] == "claude" and d["feedback"][0]["context"]["role"] == "lecturer"
+    fid = d["feedback"][0]["feedback_id"]
+    assert boss.patch(f"/api/admin/feedback/{fid}", {"done": True})[1]["done"] is True
+    assert boss.get("/api/admin/feedback?open=1")[1]["feedback"] == []
+    # rate limit: 10 per user per day
+    for i in range(9):
+        call("send_feedback", {"category": "idea", "summary": f"idea number {i}"})
+    r = call("send_feedback", {"category": "idea", "summary": "one too many"})
+    assert r["isError"] and "limit" in r["content"][0]["text"].lower()

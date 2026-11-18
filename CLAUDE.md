@@ -32,7 +32,7 @@ Users see **Workspace → Board → (Session) → Slides/Comments**, plus shared
 - Comments can be deleted by their author (anonymous or not) and by any workspace member.
 - Locked boards: non-members can't comment or like; staff still can.
 - A workspace always keeps at least one owner.
-- **Superadmin** (the platform operator): emails in the `SUPERADMIN_EMAILS` GitHub **secret** (never in the repo) → `admin.py`. Only counts when the account's email is **verified**. Gets a read-only overview of all workspaces (`GET /api/admin/spaces`, `#/admin` in the dashboard, with member emails); everyone else gets 404. It does not grant access to workspace contents or write rights, and has no MCP tool.
+- **Superadmin** (the platform operator): emails in the `SUPERADMIN_EMAILS` GitHub **secret** (never in the repo) → `admin.py`. Only counts when the account's email is **verified**. Gets a read-only overview of all workspaces (`GET /api/admin/spaces`, `#/admin` in the dashboard, with member emails); everyone else gets 404. It does not grant access to workspace contents or write rights. Superadmin-only MCP tools: `list_feedback`, `mark_feedback_done` (everyone else gets 'not found').
 
 ## Email
 Registration sends a verification mail (signed stateless token, 7 days, `verify.html`); access is **not** restricted before verification. All mails go out as plain text plus an HTML twin with clickable links (`mailer.to_html`). Brevo answers 201 and rejects bad senders / blocked IPs **afterwards**, so check Brevo's event log (or run the opt-in `tests/test_brevo_live.py`) rather than trusting "email sent" in our log. `MAIL_FROM` must be a Brevo-verified sender; in Brevo disable the unknown-IP blocking (Lambda has no fixed IP).
@@ -48,6 +48,9 @@ Registration sends a verification mail (signed stateless token, 7 days, `verify.
 
 ## Feedback
 `POST /api/feedback` (footer link "💡 Feedback or feature idea" on every page) stores the message in DynamoDB (`PK=FEEDBACK`) and mails it to `FEEDBACK_EMAIL` (GitHub **secret**; never put the address in the repo). Honeypot field `website`, max 5 per IP per hour.
+- **From Claude sessions:** MCP tool `send_feedback` (category bug/missing_feature/confusing/idea/other, summary, details, optional `context`), max 10 per user per day, stored with `source: "claude"` and mailed with subject `[Muddy Points · Claude feedback] …`. The server instructions tell agents to report Muddy Points' own limitations, to show the user what they send first, and never to include personal data or student comment texts.
+- **Optional context** (`feedback.CONTEXT_ENUMS` / `CONTEXT_TEXT`): role, discipline, teaching_format, course_size, course_language, semester_phase, goal, other_tools, claude_client, tech_comfort. Agents may only include what the user **confirmed** (never inferred). The web form offers role / subject / course size in a collapsed "Optional: about your teaching" section.
+- Superadmins read and tick off feedback in `#/admin` or via `list_feedback` / `mark_feedback_done`.
 
 ## DynamoDB single table (PK / SK), GSI1 = GSI1PK / GSI1SK
 ```
@@ -95,6 +98,8 @@ Connector URL: `<ApiUrl>/mcp/<api key>` (or `POST /mcp` with `Authorization: Bea
 | `reorder_slides`, `delete_slide`, `clear_board` | slide management |
 | `export_board_pdf`, `list_board_archives` | PDF of slides and comments (1 h download links) |
 | `get_logs` (minutes, level, contains, limit) | read CloudWatch logs (workspace members) |
+| `send_feedback` (category, summary, details, context) | report problems/ideas about Muddy Points itself to the maintainers (see Feedback) |
+| `list_feedback`, `mark_feedback_done` | superadmins only |
 
 \* owner only.
 

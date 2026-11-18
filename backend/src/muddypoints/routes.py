@@ -132,6 +132,17 @@ def resend_verification(req):
     return users.resend_verification(require_user(req))
 
 
+@router.route("GET", "/api/admin/feedback")
+def admin_feedback(req):
+    return {"feedback": feedback.list_all(require_user(req), req.query.get("limit", 200),
+                                          req.query.get("open") in ("1", "true"), req.query.get("source"))}
+
+
+@router.route("PATCH", "/api/admin/feedback/{feedback_id}")
+def admin_feedback_done(req):
+    return feedback.set_done(require_user(req), p(req, "feedback_id"), bool(body(req).get("done", True)))
+
+
 @router.route("GET", "/api/admin/spaces")
 def admin_spaces(req):
     return {"spaces": admin.list_all_spaces(require_user(req))}

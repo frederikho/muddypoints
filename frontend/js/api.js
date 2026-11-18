@@ -198,21 +198,33 @@ export function openFeedback() {
   const message = el("textarea", { rows: 5, maxlength: 5000, required: true, placeholder: "What would make Muddy Points better? Bugs, ideas, feature wishes…" });
   const email = el("input", { type: "email", placeholder: "you@university.edu (optional, if you'd like an answer)", value: session.user?.email || "" });
   const honeypot = el("input", { type: "text", name: "website", tabindex: "-1", autocomplete: "off", class: "hp", "aria-hidden": "true" });
+  const pick = (name, options) => el("select", { name }, el("option", { value: "" }, "—"),
+    ...options.map(([v, t]) => el("option", { value: v }, t)));
+  const role = pick("role", [["lecturer", "Lecturer"], ["tutor", "Tutor"], ["teaching_assistant", "Teaching assistant"], ["admin", "Admin / support"], ["other", "Other"]]);
+  const size = pick("course_size", [["<30", "fewer than 30"], ["30-100", "30–100"], ["100-300", "100–300"], [">300", "more than 300"]]);
+  const discipline = el("input", { type: "text", maxlength: 80, placeholder: "e.g. environmental economics" });
+  const about = el("details", { class: "small" }, el("summary", {}, "Optional: about your teaching"),
+    el("div", { class: "stack", style: "margin-top:8px" },
+      el("div", {}, el("label", {}, "Your role"), role),
+      el("div", {}, el("label", {}, "Subject / field"), discipline),
+      el("div", {}, el("label", {}, "Typical course size"), size),
+      el("p", { class: "muted small" }, "Helps us understand who uses Muddy Points and what for. Only what you fill in here is sent.")));
   const status = el("div");
   const close = () => overlay.remove();
   const form = el("form", { class: "card stack dialog", role: "dialog", "aria-label": "Feedback" },
     el("div", { class: "panel-head" }, el("h2", {}, "💡 Feedback & feature ideas"),
       el("button", { class: "ghost", type: "button", "aria-label": "Close", onclick: close }, "✕")),
     el("p", { class: "muted small" }, "Goes straight to the person who maintains Muddy Points. Not public."),
-    message, email, honeypot, status,
+    message, email, about, honeypot, status,
     el("div", { class: "row", style: "justify-content:flex-end" },
       el("button", { type: "button", onclick: close }, "Cancel"), el("button", { class: "primary", type: "submit" }, "Send")));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     busy(form.querySelector("button[type=submit]"), async () => {
       try {
+        const context = Object.fromEntries([["role", role.value], ["course_size", size.value], ["discipline", discipline.value.trim()]].filter(([, v]) => v));
         const res = await api("POST", "/api/feedback", { message: message.value, email: email.value, website: honeypot.value,
-          page: location.pathname + location.search });
+          page: location.pathname + location.search, context });
         form.replaceChildren(el("h2", {}, "Thank you! 🙌"), el("p", { class: "muted" }, res.mailed ? "Your message has been sent."
           : "Your message was saved, but the email to the maintainer could not be sent, so it may take a while until someone reads it."),
           el("div", { class: "row", style: "justify-content:flex-end" }, el("button", { class: "primary", type: "button", onclick: close }, "Close")));

@@ -244,8 +244,29 @@ async function spacesView() {
 }
 
 // --- operator view: every workspace on the platform (read-only; only for SUPERADMIN_EMAILS) ---------
+function feedbackSection(items, reload) {
+  const label = { web: "Website", claude: "via Claude" };
+  const card = (f) => el("div", { class: `card stack feedback-item ${f.done ? "is-done" : ""}` },
+    el("div", { class: "row", style: "justify-content:space-between" },
+      el("div", { class: "row", style: "gap:6px" },
+        el("span", { class: `badge ${f.source === "claude" ? "owner" : ""}` }, label[f.source] || f.source),
+        f.category ? el("span", { class: "badge" }, f.category.replace("_", " ")) : "",
+        el("span", { class: "muted small" }, fmtDate(f.created_at), " · ", f.user_name || f.email || (f.user_id ? "logged-in user" : "anonymous"))),
+      el("label", { class: "check small" }, el("input", { type: "checkbox", checked: f.done, onchange: (e) => busy(null, async () => {
+        await api("PATCH", `/api/admin/feedback/${f.feedback_id}`, { done: e.target.checked }); reload(); }) }), " done")),
+    f.summary ? el("strong", {}, f.summary) : "",
+    el("div", { class: "feedback-text" }, f.message),
+    Object.keys(f.context || {}).length ? el("div", { class: "row", style: "gap:4px" },
+      ...Object.entries(f.context).map(([k, v]) => el("span", { class: "badge", title: k }, `${k.replace("_", " ")}: ${Array.isArray(v) ? v.join(", ") : v}`))) : "",
+    f.page ? el("div", { class: "muted small" }, "Page: ", f.page) : "");
+  const open = items.filter((f) => !f.done);
+  return el("section", {},
+    el("div", { class: "section-title" }, el("h2", { style: "margin:0" }, `Feedback (${open.length} open)`)),
+    items.length ? el("div", { class: "stack" }, ...items.map(card)) : el("p", { class: "muted" }, "No feedback yet."));
+}
+
 async function adminView() {
-  const { spaces } = await api("GET", "/api/admin/spaces");
+  const [{ spaces }, { feedback }] = await Promise.all([api("GET", "/api/admin/spaces"), api("GET", "/api/admin/feedback")]);
   spaces.sort((a, b) => (b.last_activity_at || "").localeCompare(a.last_activity_at || ""));
   const row = (s) => el("tr", {},
     el("td", {}, el("strong", {}, s.name), el("div", { class: "muted small" }, s.space_id)),
@@ -261,7 +282,8 @@ async function adminView() {
     el("p", { class: "muted small" }, "Operator view, read-only. Only visible to accounts listed in SUPERADMIN_EMAILS with a confirmed email address."),
     el("div", { class: "card", style: "padding:4px 12px;overflow-x:auto" },
       el("table", {}, el("thead", {}, el("tr", {}, ["Workspace", "Members", "Boards", "Last activity"].map((h) => el("th", {}, h)))),
-        el("tbody", {}, spaces.map(row)))));
+        el("tbody", {}, spaces.map(row)))),
+    feedbackSection(feedback, () => adminView().catch(showError)));
 }
 
 // --- workspace files ---------------------------------------------------------------------------

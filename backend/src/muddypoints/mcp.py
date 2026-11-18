@@ -58,7 +58,14 @@ Comments: list_comments returns all comments incl. replies (parent_id) and statu
 - reply_to_comment posts IN THE USER'S NAME (students see it as the lecturer's answer). NEVER reply on your own
   initiative. You may offer to help and draft answers, but only post when the user explicitly asks you to answer
   ("please answer the student by explaining X"); if you drafted the text yourself, show it and get an OK first.
-- set_comment_status: answered (✓ shown to students), pinned (top of the slide), hidden (students don't see it)."""
+- set_comment_status: answered (✓ shown to students), pinned (top of the slide), hidden (students don't see it).
+Feedback to the Muddy Points developers (send_feedback): when you hit a limitation of Muddy Points itself - a
+missing tool, confusing or surprising behaviour, an error, a workflow that needs too many steps - propose to report
+it. Tell the user what you would send and send it once they agree (or right away if they asked you to report it).
+One report per problem, concrete: what you tried, what happened, what would have helped. Never include student
+comment texts, names, emails or other personal data. Optionally ask the user once whether you may add context about
+their teaching (role, discipline, course size, ...): include ONLY what they confirmed or explicitly said - never
+guess or infer it."""
 
 ToolFn = Callable[[dict, dict], Any]
 TOOLS: dict[str, dict] = {}
@@ -482,6 +489,46 @@ def _archives(user, a):
 
 
 # --- debugging ------------------------------------------------------------------------------
+
+@tool("send_feedback",
+      "Report a problem or idea about Muddy Points ITSELF to its developers (missing tool, bug, confusing behaviour, "
+      "idea). Tell the user what you send and get their OK first (unless they asked you to report it). No personal "
+      "data or student comment texts. 'context' is optional and may only contain what the user confirmed. Max 10/day.",
+      {"category": {"type": "string", "enum": ["bug", "missing_feature", "confusing", "idea", "other"]},
+       "summary": {"type": "string", "description": "One line, 5-200 characters"},
+       "details": {"type": "string", "description": "What you tried, what happened, what would have helped"},
+       "context": {"type": "object", "description": "Optional, ONLY what the user agreed to share", "properties": {
+           "role": {"type": "string", "enum": ["lecturer", "tutor", "teaching_assistant", "admin", "other"]},
+           "discipline": {"type": "string", "description": "e.g. environmental economics"},
+           "teaching_format": {"type": "string", "enum": ["lecture", "seminar", "flipped_classroom", "online", "other"]},
+           "course_size": {"type": "string", "enum": ["<30", "30-100", "100-300", ">300"]},
+           "course_language": {"type": "string"},
+           "semester_phase": {"type": "string", "enum": ["preparation", "during_semester", "wrap_up"]},
+           "goal": {"type": "string", "description": "What the user was trying to achieve"},
+           "other_tools": {"type": "array", "items": {"type": "string"}, "description": "e.g. OLAT, Seafile"},
+           "claude_client": {"type": "string", "enum": ["claude_ai", "desktop_app", "claude_code", "mobile", "other"]},
+           "tech_comfort": {"type": "string", "enum": ["low", "medium", "high"]}}}},
+      ("category", "summary"))
+def _send_feedback(user, a):
+    from . import feedback
+    return feedback.submit_from_claude(user, a.get("category"), a.get("summary"), a.get("details"), a.get("context"))
+
+
+@tool("list_feedback", "Platform operators (superadmins) only: feedback from the web form and from Claude sessions, "
+      "newest first. Others get 'not found'.",
+      {"only_open": {"type": "boolean", "default": True}, "source": {"type": "string", "enum": ["web", "claude"]},
+       "limit": {"type": "integer", "default": 50}}, read_only=True)
+def _list_feedback(user, a):
+    from . import feedback
+    return feedback.list_all(user, a.get("limit", 50), a.get("only_open", True), a.get("source"))
+
+
+@tool("mark_feedback_done", "Platform operators (superadmins) only: mark a feedback entry as done (or open again).",
+      {"feedback_id": S, "done": {"type": "boolean", "default": True}}, ("feedback_id",))
+def _feedback_done(user, a):
+    from . import feedback
+    return feedback.set_done(user, a["feedback_id"], a.get("done", True))
+
 
 @tool("get_logs", "Read recent application logs (backend + frontend errors) from CloudWatch for debugging. "
       "For workspace members.",

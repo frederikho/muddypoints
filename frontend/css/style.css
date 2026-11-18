@@ -343,3 +343,7 @@ label.check { display: flex; gap: 8px; align-items: center; font-weight: 500; fo
 .demo-banner { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: center; padding: 10px 16px; background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: .92rem; text-align: center; }
 .demo-banner a { font-weight: 700; white-space: nowrap; }
 .demo-link { font-weight: 700; }
+
+/* --- admin feedback list --- */
+.feedback-item.is-done { opacity: .55; }
+.feedback-text { white-space: pre-wrap; }
