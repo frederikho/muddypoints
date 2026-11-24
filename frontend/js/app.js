@@ -75,7 +75,7 @@ function authView(tab = "login") {
   }
   show(tab);
   const authCard = el("div", { class: "card auth-card", id: "auth" }, tabs, holder);
-  const goAuth = (which) => { show(which); authCard.scrollIntoView({ behavior: "smooth", block: "center" }); authCard.querySelector("input")?.focus(); };
+  const goAuth = (which) => { show(which); authCard.scrollIntoView({ behavior: "smooth", block: "center" }); authCard.querySelector("input")?.focus({ preventScroll: true }); };
 
   const mockComment = (who, text, likes, staff = false) => el("div", { class: "comment" },
     el("div", { class: `who ${staff ? "staff" : ""}` }, who, staff ? " · staff" : ""),
